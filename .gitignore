@@ -1,0 +1,45 @@
+# Environment configurations (Secrets & Credentials)
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+*.env
+
+# Python virtual environments & dependencies
+venv/
+.venv/
+env/
+ENV/
+backend/venv/
+backend/.venv/
+processing_station/venv/
+processing_station/.venv/
+
+# Python cache & compiled files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Node modules and dependency trees
+node_modules/
+mobile/node_modules/
+
+# Mobile expo build and runtime files
+.expo/
+mobile/.expo/
+mobile/dist/
+
+# OS metadata
+.DS_Store
+Thumbs.db
+
+# Large media files (videos, models etc. over 100MB)
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.webm
+*.zip
+*.tar.gz
+

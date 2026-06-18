@@ -1,0 +1,13 @@
+{
+  "expo": {
+    "name": "beach-litter-mobile",
+    "slug": "beach-litter-mobile",
+    "version": "1.0.0",
+    "sdkVersion": "54.0.0",
+    "userInterfaceStyle": "dark",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.beachlitter.mobile"
+    }
+  }
+}

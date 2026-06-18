@@ -1,0 +1,29 @@
+# Ignore Git metadata
+.git/
+.gitignore
+
+# Ignore Node.js / Frontend dependencies (very large)
+node_modules/
+.expo/
+web-build/
+android/
+ios/
+
+# Ignore Python virtual environments
+venv/
+.venv/
+env/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Ignore environment variables / secrets (deployed via Secret Manager or Cloud Run Env Vars instead)
+.env
+
+# Ignore build artifacts or logs
+*.log
+dist/
+build/
+
+# Ignore large sample video files (nearly 1GB)
+static/*.mp4

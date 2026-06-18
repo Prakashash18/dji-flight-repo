@@ -1,0 +1,2093 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Coastal Patrol - Processing Station Dashboard</title>
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+    <style>
+        :root {
+            --bg-color: #06080c;
+            --panel-bg: rgba(15, 23, 42, 0.45);
+            --border-glow: rgba(0, 240, 255, 0.15);
+            --primary-glow: #00f2ff;
+            --accent-glow: #bc13fe;
+            --text-color: #eef4f8;
+            --text-secondary: #8da9c4;
+            --success-color: #00f5d4;
+            --danger-color: #ff5d8f;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            background-image: 
+                radial-gradient(circle at 10% 20%, rgba(0, 240, 255, 0.04) 0%, transparent 40%),
+                radial-gradient(circle at 90% 80%, rgba(188, 19, 254, 0.05) 0%, transparent 40%);
+        }
+
+        /* Premium Header */
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px 40px;
+            background: rgba(6, 8, 12, 0.85);
+            backdrop-filter: blur(12px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            z-index: 100;
+        }
+
+        .logo-section h1 {
+            font-family: 'Outfit', sans-serif;
+            font-size: 22px;
+            font-weight: 800;
+            letter-spacing: 0.5px;
+            background: linear-gradient(135deg, var(--primary-glow) 0%, var(--accent-glow) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .logo-section p {
+            font-size: 10px;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            margin-top: 1px;
+        }
+
+        /* Stepper progress tracker in header */
+        .stepper-container {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .step-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .step-circle {
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            background: #111827;
+            border: 2px solid #374151;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'Outfit', sans-serif;
+            font-weight: 700;
+            color: #9ca3af;
+            font-size: 12px;
+            transition: all 0.3s ease;
+        }
+        .step-label {
+            font-size: 12px;
+            font-weight: 600;
+            color: #6b7280;
+            transition: all 0.3s ease;
+            white-space: nowrap;
+        }
+        .step-line {
+            width: 40px;
+            height: 2px;
+            background: #374151;
+            transition: all 0.3s ease;
+        }
+        /* Active State */
+        .step-item.active .step-circle {
+            border-color: var(--primary-glow);
+            color: var(--primary-glow);
+            background: rgba(0, 240, 255, 0.05);
+            box-shadow: 0 0 10px rgba(0, 240, 255, 0.25);
+        }
+        .step-item.active .step-label {
+            color: #eef4f8;
+        }
+        /* Completed State */
+        .step-item.completed .step-circle {
+            border-color: var(--success-color);
+            color: #06080c;
+            background: var(--success-color);
+            box-shadow: 0 0 8px rgba(0, 245, 212, 0.2);
+        }
+        .step-item.completed .step-label {
+            color: var(--success-color);
+        }
+        .step-line.completed {
+            background: linear-gradient(90deg, var(--primary-glow), var(--accent-glow));
+        }
+
+        .status-badge {
+            background: rgba(0, 245, 212, 0.08);
+            color: var(--success-color);
+            border: 1px solid rgba(0, 245, 212, 0.15);
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            box-shadow: 0 0 10px rgba(0, 245, 212, 0.05);
+        }
+
+        .status-badge::before {
+            content: '';
+            width: 6px;
+            height: 6px;
+            background-color: var(--success-color);
+            border-radius: 50%;
+            display: inline-block;
+            box-shadow: 0 0 8px var(--success-color);
+            animation: pulse 1.8s infinite;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(0.9); opacity: 0.6; }
+            50% { transform: scale(1.3); opacity: 1; }
+            100% { transform: scale(0.9); opacity: 0.6; }
+        }
+
+        /* Glass Panels */
+        .glass-panel {
+            background: var(--panel-bg);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            transition: border-color 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .glass-panel:hover {
+            border-color: var(--border-glow);
+            box-shadow: 0 8px 32px 0 rgba(0, 240, 255, 0.05);
+        }
+
+        .panel-header {
+            padding: 14px 20px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            background: rgba(255, 255, 255, 0.01);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .panel-header h2 {
+            font-family: 'Outfit', sans-serif;
+            font-size: 15px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            color: var(--text-color);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .panel-body {
+            padding: 20px;
+            overflow-y: auto;
+            flex-grow: 1;
+        }
+
+        /* Wizard container and sections */
+        main {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            min-height: 0;
+            overflow: hidden;
+        }
+
+        .step-section {
+            padding: 40px;
+            max-width: 1100px;
+            margin: 0 auto;
+            width: 100%;
+            animation: fadeIn 0.4s ease-out;
+            max-height: 100%;
+            overflow-y: auto;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .step-header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+
+        .step-header h2 {
+            font-family: 'Outfit', sans-serif;
+            font-size: 28px;
+            font-weight: 800;
+            background: linear-gradient(135deg, var(--primary-glow) 0%, var(--accent-glow) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 8px;
+            letter-spacing: 0.5px;
+        }
+
+        .step-header p {
+            font-size: 14px;
+            color: var(--text-secondary);
+        }
+
+        /* Sample Download Banner Styles */
+        .sample-download-prompt {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: rgba(15, 23, 42, 0.45);
+            border: 1px solid rgba(0, 240, 255, 0.2);
+            border-radius: 12px;
+            padding: 16px 24px;
+            margin: 0 auto 30px auto;
+            max-width: 900px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3), inset 0 1px 1px rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            animation: fadeIn 0.5s ease-out;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .sample-download-prompt::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background: linear-gradient(180deg, var(--primary-glow), var(--accent-glow));
+        }
+
+        .sample-prompt-content {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            flex: 1;
+        }
+
+        .sample-badge {
+            background: linear-gradient(135deg, rgba(0, 240, 255, 0.15) 0%, rgba(188, 19, 254, 0.15) 100%);
+            border: 1px solid rgba(0, 240, 255, 0.3);
+            color: var(--primary-glow);
+            font-family: 'Outfit', sans-serif;
+            font-size: 11px;
+            font-weight: 700;
+            padding: 4px 10px;
+            border-radius: 6px;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            box-shadow: 0 0 10px rgba(0, 240, 255, 0.1);
+        }
+
+        .sample-prompt-text {
+            color: var(--text-color);
+            font-size: 14px;
+            font-weight: 500;
+            line-height: 1.4;
+        }
+
+        .sample-prompt-actions {
+            display: flex;
+            gap: 12px;
+        }
+
+        .sample-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(141, 169, 196, 0.2);
+            color: var(--text-secondary);
+            font-family: 'Inter', sans-serif;
+            font-size: 13px;
+            font-weight: 600;
+            padding: 8px 16px;
+            border-radius: 8px;
+            cursor: pointer;
+            text-decoration: none;
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .sample-btn .btn-icon {
+            width: 16px;
+            height: 16px;
+        }
+
+        .sample-btn:hover {
+            color: var(--text-color);
+            background: rgba(0, 240, 255, 0.08);
+            border-color: rgba(0, 240, 255, 0.4);
+            box-shadow: 0 0 12px rgba(0, 240, 255, 0.15);
+            transform: translateY(-1px);
+        }
+
+        .sample-btn.video-btn:hover {
+            border-color: rgba(0, 240, 255, 0.5);
+            box-shadow: 0 0 12px rgba(0, 240, 255, 0.2);
+        }
+
+        .sample-btn.srt-btn:hover {
+            border-color: rgba(188, 19, 254, 0.5);
+            box-shadow: 0 0 12px rgba(188, 19, 254, 0.2);
+        }
+
+        /* Responsive styling for the sample prompt */
+        @media (max-width: 768px) {
+            .sample-download-prompt {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 16px;
+                padding: 20px;
+            }
+            .sample-prompt-actions {
+                width: 100%;
+                justify-content: flex-start;
+            }
+            .sample-btn {
+                flex: 1;
+                justify-content: center;
+            }
+        }
+
+        /* Step 1: Upload Card Grid */
+        .cards-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            margin-bottom: 30px;
+        }
+
+        .upload-card {
+            background: rgba(15, 23, 42, 0.25);
+            border: 2px dashed rgba(255, 255, 255, 0.08);
+            border-radius: 16px;
+            padding: 45px 30px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            min-height: 280px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+            backdrop-filter: blur(12px);
+        }
+
+        .upload-card:hover {
+            border-color: var(--primary-glow);
+            background: rgba(0, 240, 255, 0.015);
+            box-shadow: 0 0 25px rgba(0, 240, 255, 0.05);
+            transform: translateY(-2px);
+        }
+
+        .upload-card#telemetry-upload-card:hover {
+            border-color: var(--accent-glow);
+            background: rgba(188, 19, 254, 0.015);
+            box-shadow: 0 0 25px rgba(188, 19, 254, 0.05);
+        }
+
+        .upload-card.dragover {
+            border-color: var(--primary-glow);
+            background: rgba(0, 240, 255, 0.04);
+            transform: scale(1.02);
+        }
+
+        .upload-card.selected {
+            border-style: solid;
+            border-color: var(--success-color);
+            background: rgba(0, 245, 212, 0.02);
+            box-shadow: 0 0 20px rgba(0, 245, 212, 0.04);
+            cursor: default;
+        }
+
+        .upload-card.selected:hover {
+            transform: none;
+        }
+
+        .upload-prompt svg {
+            width: 48px;
+            height: 48px;
+            stroke: var(--text-secondary);
+            margin-bottom: 16px;
+            transition: stroke 0.3s ease;
+        }
+
+        .upload-card:hover .upload-prompt svg {
+            stroke: var(--primary-glow);
+        }
+
+        .upload-card#telemetry-upload-card:hover .upload-prompt svg {
+            stroke: var(--accent-glow);
+        }
+
+        .upload-prompt h3 {
+            font-family: 'Outfit', sans-serif;
+            font-size: 18px;
+            font-weight: 700;
+            margin-bottom: 8px;
+            color: #eef4f8;
+        }
+
+        .upload-prompt p {
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin-bottom: 6px;
+        }
+
+        .file-type-hint {
+            font-size: 11px;
+            color: rgba(255, 255, 255, 0.3);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        /* File info container inside selected cards */
+        .file-info-container {
+            width: 100%;
+            padding: 10px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .file-info-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 15px;
+        }
+
+        .file-icon {
+            font-size: 28px;
+        }
+
+        .success-badge {
+            background: rgba(0, 245, 212, 0.1);
+            color: var(--success-color);
+            border: 1px solid rgba(0, 245, 212, 0.2);
+            padding: 2px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .file-name-heading {
+            font-size: 16px;
+            font-weight: 600;
+            color: #eef4f8;
+            word-break: break-all;
+            margin-bottom: 4px;
+            max-width: 90%;
+        }
+
+        .file-size-sub {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-bottom: 24px;
+        }
+
+        .remove-file-btn {
+            background: rgba(255, 93, 143, 0.08);
+            color: var(--danger-color);
+            border: 1px solid rgba(255, 93, 143, 0.15);
+            padding: 6px 16px;
+            border-radius: 8px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .remove-file-btn:hover {
+            background: var(--danger-color);
+            color: #06080c;
+            border-color: var(--danger-color);
+        }
+
+        /* Navigation Button Bars */
+        .navigation-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 20px;
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border-radius: 8px;
+            border: none;
+            font-family: inherit;
+            font-size: 14px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            text-decoration: none;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--primary-glow) 0%, var(--accent-glow) 100%);
+            color: #06080c;
+            box-shadow: 0 4px 15px rgba(0, 240, 255, 0.2);
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            transform: translateY(-1px);
+            box-shadow: 0 6px 20px rgba(0, 240, 255, 0.35);
+            opacity: 0.95;
+        }
+
+        .btn-primary:disabled {
+            background: rgba(255, 255, 255, 0.08);
+            color: rgba(255, 255, 255, 0.25);
+            cursor: not-allowed;
+            box-shadow: none;
+        }
+
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.04);
+            color: #eef4f8;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.08);
+            border-color: rgba(255, 255, 255, 0.15);
+        }
+
+        .btn-small {
+            padding: 8px 16px;
+            font-size: 12px;
+            border-radius: 6px;
+        }
+
+        .btn-gradient-glow {
+            position: relative;
+        }
+        .btn-gradient-glow::after {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            border-radius: 8px;
+            background: linear-gradient(135deg, var(--primary-glow) 0%, var(--accent-glow) 100%);
+            z-index: -1;
+            filter: blur(8px);
+            opacity: 0.4;
+            transition: all 0.3s ease;
+        }
+        .btn-gradient-glow:hover::after {
+            filter: blur(14px);
+            opacity: 0.7;
+        }
+
+        /* Step 2: Settings layout */
+        .settings-card-wrapper {
+            display: flex;
+            justify-content: center;
+            margin-bottom: 30px;
+        }
+
+        .settings-card {
+            width: 100%;
+            max-width: 600px;
+        }
+
+        .form-group {
+            margin-bottom: 22px;
+        }
+
+        .form-group label {
+            display: block;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+        }
+
+        .select-input, .text-input {
+            width: 100%;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 8px;
+            padding: 12px 16px;
+            color: var(--text-color);
+            font-family: inherit;
+            font-size: 13px;
+            outline: none;
+            transition: all 0.3s ease;
+        }
+
+        .select-input:focus, .text-input:focus {
+            border-color: var(--primary-glow);
+            box-shadow: 0 0 8px rgba(0, 240, 255, 0.15);
+        }
+
+        .custom-model-file-container {
+            display: none;
+            margin-top: 10px;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .custom-model-upload-card {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px dashed rgba(255, 255, 255, 0.15);
+            border-radius: 8px;
+            padding: 14px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+        .custom-model-upload-card:hover {
+            border-color: var(--primary-glow);
+            background: rgba(0, 240, 255, 0.02);
+        }
+
+        /* Step 3: Run & Live Monitor Dashboard */
+        .step-3-layout {
+            max-width: 100%;
+            padding: 20px 30px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            height: 100%;
+            min-height: 0;
+            overflow: hidden;
+        }
+
+        .progress-overlay-card {
+            padding: 14px 20px;
+        }
+
+        .progress-info-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .task-details {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .task-badge {
+            background: rgba(0, 240, 255, 0.08);
+            color: var(--primary-glow);
+            border: 1px solid rgba(0, 240, 255, 0.15);
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+        }
+
+        .task-id-text {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            color: var(--text-secondary);
+            background: rgba(255, 255, 255, 0.02);
+            padding: 2px 8px;
+            border-radius: 4px;
+        }
+
+        .progress-bar-container {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            width: 100%;
+        }
+
+        .progress-track {
+            flex-grow: 1;
+            width: 100%;
+            height: 12px;
+            background: rgba(255, 255, 255, 0.12);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 6px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .progress-fill {
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg, var(--primary-glow) 0%, var(--accent-glow) 100%);
+            border-radius: 6px;
+            box-shadow: 0 0 10px var(--primary-glow);
+            transition: width 0.3s ease;
+        }
+
+        .progress-percent {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 14px;
+            font-weight: 700;
+            color: var(--primary-glow);
+            min-width: 180px;
+            text-align: right;
+        }
+
+        .live-workspace {
+            display: grid;
+            grid-template-columns: 1fr 440px;
+            gap: 20px;
+            flex-grow: 1;
+            min-height: 0;
+        }
+
+        .map-panel {
+            height: 100%;
+        }
+
+        .map-body {
+            padding: 0;
+            position: relative;
+        }
+
+        #map {
+            width: 100%;
+            height: 100%;
+            background-color: #0c1b2f;
+        }
+
+        .right-streams {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            height: 100%;
+            min-height: 0;
+        }
+
+        /* Terminal Console */
+        .terminal-container {
+            display: flex;
+            flex-direction: column;
+            background: rgba(2, 6, 12, 0.95);
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.03);
+            overflow: hidden;
+            flex: 1;
+            min-height: 0;
+        }
+
+        .terminal-header {
+            padding: 10px 16px;
+            background: rgba(255, 255, 255, 0.02);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10px;
+            color: var(--text-secondary);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .terminal-pulse {
+            width: 6px;
+            height: 6px;
+            background-color: var(--primary-glow);
+            border-radius: 50%;
+            display: inline-block;
+            box-shadow: 0 0 6px var(--primary-glow);
+            animation: pulse 1.8s infinite;
+        }
+
+        .terminal-body {
+            flex-grow: 1;
+            padding: 15px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            color: #52e3c2;
+            overflow-y: auto;
+            line-height: 1.6;
+        }
+
+        .terminal-line {
+            margin-bottom: 4px;
+            white-space: pre-wrap;
+        }
+
+        .terminal-line.error {
+            color: var(--danger-color);
+        }
+
+        .terminal-line.success {
+            color: var(--success-color);
+        }
+
+        .caret {
+            display: inline-block;
+            width: 7px;
+            height: 14px;
+            background-color: #52e3c2;
+            animation: blink 1s step-end infinite;
+            vertical-align: middle;
+            margin-left: 2px;
+        }
+
+        @keyframes blink {
+            50% { opacity: 0; }
+        }
+
+        /* Live Detections Scroller */
+        .detections-panel {
+            flex: 1;
+            min-height: 0;
+        }
+
+        .detections-body {
+            padding: 12px;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+            overflow: hidden;
+        }
+
+        .detections-scroller {
+            height: 100%;
+            overflow-y: auto;
+            padding-right: 4px;
+        }
+
+        .detections-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+            gap: 12px;
+        }
+
+        .detection-card {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+            overflow: hidden;
+            transition: all 0.3s ease;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .detection-card:hover {
+            border-color: var(--primary-glow);
+            transform: translateY(-2px);
+            background: rgba(0, 240, 255, 0.02);
+        }
+
+        .detection-thumb {
+            width: 100%;
+            height: 80px;
+            object-fit: cover;
+            background-color: rgba(255,255,255,0.02);
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+
+        .detection-info {
+            padding: 8px;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .detection-class {
+            font-size: 11px;
+            font-weight: 700;
+            color: #eef4f8;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .detection-confidence-badge {
+            font-size: 10px;
+            font-weight: 600;
+            padding: 2px 6px;
+            border-radius: 4px;
+            align-self: flex-start;
+            color: #06080c;
+        }
+
+        .detection-coordinates {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 9px;
+            color: var(--text-secondary);
+            margin-top: 2px;
+            line-height: 1.2;
+        }
+
+        .detections-badge {
+            background: rgba(0, 240, 255, 0.1);
+            color: var(--primary-glow);
+            border: 1px solid rgba(0, 240, 255, 0.2);
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 11px;
+            font-weight: 700;
+        }
+
+        /* Scrollbars customization */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.08);
+            border-radius: 3px;
+        }
+        .drone-video-icon {
+            background: none !important;
+            border: none !important;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Header bar -->
+    <header>
+        <div class="logo-section">
+            <h1>🌊 Coastal Patrol</h1>
+            <p>Processing Station Engine</p>
+        </div>
+
+        <!-- Stepper Progress Tracker -->
+        <div class="stepper-container">
+            <div class="step-item active" id="step-indicator-1">
+                <div class="step-circle">1</div>
+                <span class="step-label">Upload Data</span>
+            </div>
+            <div class="step-line" id="step-line-1"></div>
+            <div class="step-item pending" id="step-indicator-2">
+                <div class="step-circle">2</div>
+                <span class="step-label">Configure YOLO</span>
+            </div>
+            <div class="step-line" id="step-line-2"></div>
+            <div class="step-item pending" id="step-indicator-3">
+                <div class="step-circle">3</div>
+                <span class="step-label">Live Monitor</span>
+            </div>
+        </div>
+
+        <div class="status-badge" id="service-status">Engine Connected</div>
+    </header>
+
+    <!-- Main Workspace -->
+    <main>
+        <form id="processing-form" style="display: contents;">
+            <!-- STEP 1: Upload Data -->
+            <div id="step-1-section" class="step-section">
+                <div class="step-header">
+                    <h2>Ingest Flight Data</h2>
+                    <p>Select or drag and drop the drone flight video and matching GPS telemetry log file to get started.</p>
+                </div>
+
+                <!-- Sample Data Download Banner -->
+                <div class="sample-download-prompt">
+                    <div class="sample-prompt-content">
+                        <span class="sample-badge">DEMO DATA</span>
+                        <span class="sample-prompt-text">Don't have drone files? Download sample logs to try out the volunteer application.</span>
+                    </div>
+                    <div class="sample-prompt-actions">
+                        <a href="https://storage.googleapis.com/dji-flight-volunteer-app-assets/sample.mp4" download class="sample-btn video-btn">
+                            <svg class="btn-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                            </svg>
+                            Sample Video (.mp4)
+                        </a>
+                        <a href="/static/sample.srt" download class="sample-btn srt-btn">
+                            <svg class="btn-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                            </svg>
+                            Sample Telemetry (.srt)
+                        </a>
+                    </div>
+                </div>
+
+                <div class="cards-grid">
+                    <!-- Flight Video Card -->
+                    <div class="upload-card" id="video-upload-card" onclick="document.getElementById('video-input').click()">
+                        <div id="video-upload-prompt" class="upload-prompt">
+                            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3.375 19.5h17.25m-17.25 0a1.125 1.125 0 01-1.125-1.125M3.375 19.5h7.5c.621 0 1.125-.504 1.125-1.125v-9.75M3.375 19.5a1.125 1.125 0 001.125 1.125M20.625 19.5h-7.5c-.621 0-1.125-.504-1.125-1.125v-9.75M20.625 19.5a1.125 1.125 0 011.125 1.125m-1.125-1.125a1.125 1.125 0 001.125 1.125M12 9.75v10.5m0-10.5a1.125 1.125 0 011.125-1.125h2.25m-3.375 1.125A1.125 1.125 0 0010.875 9h-2.25m2.25 10.5h2.25M6.75 20.25h10.5" />
+                            </svg>
+                            <h3>Drone Flight Video</h3>
+                            <p>Drag & drop or click to upload</p>
+                            <span class="file-type-hint">Supports MP4 format up to 4K</span>
+                        </div>
+                        <div id="video-file-info" class="file-info-container" style="display: none;">
+                            <div class="file-info-header">
+                                <span class="file-icon">🎬</span>
+                                <span class="success-badge">Selected</span>
+                            </div>
+                            <div class="file-info-details">
+                                <h4 id="video-file-info-name" class="file-name-heading">video.mp4</h4>
+                                <p id="video-file-info-size" class="file-size-sub">0.0 MB</p>
+                            </div>
+                            <button type="button" class="remove-file-btn" onclick="clearVideoFile(event)">Remove file</button>
+                        </div>
+                    </div>
+
+                    <!-- Telemetry Log Card -->
+                    <div class="upload-card" id="telemetry-upload-card" onclick="document.getElementById('telemetry-input').click()">
+                        <div id="telemetry-upload-prompt" class="upload-prompt">
+                            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                            </svg>
+                            <h3>Flight Telemetry Log</h3>
+                            <p>Drag & drop or click to upload</p>
+                            <span class="file-type-hint">Supports CSV or SRT log files</span>
+                        </div>
+                        <div id="telemetry-file-info" class="file-info-container" style="display: none;">
+                            <div class="file-info-header">
+                                <span class="file-icon">📄</span>
+                                <span class="success-badge">Selected</span>
+                            </div>
+                            <div class="file-info-details">
+                                <h4 id="telemetry-file-info-name" class="file-name-heading">log.csv</h4>
+                                <p id="telemetry-file-info-size" class="file-size-sub">0.0 MB</p>
+                            </div>
+                            <button type="button" class="remove-file-btn" onclick="clearTelemetryFile(event)">Remove file</button>
+                        </div>
+                    </div>
+                </div>
+                <input type="file" id="video-input" accept="video/mp4" style="display: none" onchange="handleVideoSelected(this)">
+                <input type="file" id="telemetry-input" accept=".csv,.srt" style="display: none" onchange="handleTelemetrySelected(this)">
+
+                <div class="navigation-bar">
+                    <div></div> <!-- spacer -->
+                    <button type="button" id="step-1-next-btn" class="btn btn-primary" onclick="goToStep(2)">
+                        <span>Configure Settings</span>
+                        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" style="width: 16px; height: 16px;">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                        </svg>
+                    </button>
+                </div>
+            </div>
+
+            <!-- STEP 2: Configure Settings -->
+            <div id="step-2-section" class="step-section" style="display: none;">
+                <div class="step-header">
+                    <h2>Configure YOLO Engine</h2>
+                    <p>Select target detection weights and telemetry frame sampling frequency.</p>
+                </div>
+                <div class="settings-card-wrapper">
+                    <div class="glass-panel settings-card">
+                        <div class="panel-header">
+                            <h2>⚙️ Engine Parameters</h2>
+                        </div>
+                        <div class="panel-body">
+                            <!-- Model Selection -->
+                            <div class="form-group">
+                                <label>YOLOv8 Detection Weights</label>
+                                <select class="select-input" id="model-select" onchange="modelTypeChanged(this)">
+                                    <option value="solar_panel.pt" selected>Default Solar Panel Model (solar_panel.pt)</option>
+                                    <option value="yolov8n.pt">YOLOv8 Nano (Trash/General)</option>
+                                    <option value="custom">Swap out to custom model (.pt)</option>
+                                </select>
+                            </div>
+
+                            <!-- Custom Model File Upload (swappable weights) -->
+                            <div class="form-group custom-model-file-container" id="custom-model-container">
+                                <label>Custom YOLO Weights (.pt file)</label>
+                                <div class="custom-model-upload-card" onclick="document.getElementById('custom-model-file').click()">
+                                    <span id="custom-model-file-name">Click to select custom weights (.pt)</span>
+                                </div>
+                                <input type="file" id="custom-model-file" accept=".pt" style="display: none" onchange="customModelSelected(this)">
+                            </div>
+
+                            <!-- Frame stepping interval -->
+                            <div class="form-group">
+                                <label>Sampling Frequency (seconds)</label>
+                                <select class="select-input" id="interval-select">
+                                    <option value="500">Fast (Every 0.5s)</option>
+                                    <option value="1000" selected>Standard (Every 1.0s)</option>
+                                    <option value="2000">Eco-mode (Every 2.0s)</option>
+                                </select>
+                            </div>
+
+                            <!-- Accuracy Expectation / Confidence Threshold -->
+                            <div class="form-group">
+                                <label>Expected Object Accuracy: <span id="conf-val" style="color: var(--primary-glow); font-weight: 700;">70%</span></label>
+                                <input type="range" id="confidence-range" min="10" max="95" value="70" class="select-input" style="padding: 0; height: 6px; background: rgba(255,255,255,0.1); cursor: pointer;" oninput="document.getElementById('conf-val').textContent = this.value + '%'">
+                            </div>
+
+                            <!-- Mission Details -->
+                            <div style="margin-top: 20px; padding-top: 15px; border-top: 1px dashed rgba(255,255,255,0.1);">
+                                <h3 style="color: #fff; font-size: 13px; margin-bottom: 12px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px;">📋 Mission Details</h3>
+                                <div class="form-group">
+                                    <label>Mission Title</label>
+                                    <input type="text" id="mission-title" class="select-input" placeholder="e.g. Changi Beach Patrol Run" style="width: 100%;">
+                                </div>
+                                <div class="form-group" style="margin-top: 12px;">
+                                    <label>Mission Date & Time</label>
+                                    <input type="datetime-local" id="mission-date" class="select-input" style="width: 100%;">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="navigation-bar">
+                    <button type="button" class="btn btn-secondary" onclick="goToStep(1)">
+                        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" style="width: 16px; height: 16px; transform: rotate(180deg);">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                        </svg>
+                        <span>Back to Upload</span>
+                    </button>
+                    <button type="submit" id="start-btn" class="btn btn-primary btn-gradient-glow">
+                        <span>Start Georeferencing</span>
+                        <span>⚡</span>
+                    </button>
+                </div>
+            </div>
+        </form>
+
+        <!-- STEP 3: Run & Live Monitor -->
+        <div id="step-3-section" class="step-3-layout" style="display: none;">
+            <!-- Top Progress Overlay Bar -->
+            <div class="glass-panel progress-overlay-card">
+                <div class="progress-info-row">
+                    <div class="task-details">
+                        <span class="task-badge" id="task-status-label">Status: Ingesting</span>
+                        <span class="task-id-text" id="terminal-task-id">TASK: IDLE</span>
+                    </div>
+                    <button type="button" id="new-session-btn" class="btn btn-secondary btn-small" style="display: none;" onclick="resetWizard()">
+                        <span>Start New Session</span>
+                        <span>🔄</span>
+                    </button>
+                </div>
+                <div class="progress-bar-container">
+                    <div class="progress-track">
+                        <div class="progress-fill" id="task-progress-fill"></div>
+                    </div>
+                    <span class="progress-percent" id="task-percent-label">0%</span>
+                </div>
+            </div>
+            
+            <!-- Live Workspace Split -->
+            <div class="live-workspace">
+                <!-- Map Panel (Left) -->
+                <div class="glass-panel map-panel">
+                    <div class="panel-header">
+                        <h2>🗺️ Spatial Georeferencing Map</h2>
+                        <label style="display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; cursor: pointer; color: var(--text-secondary);">
+                            <input type="checkbox" id="video-overlay-toggle" onchange="toggleVideoOverlay(this.checked)" style="accent-color: var(--primary-glow); cursor: pointer;">
+                            Project Video on Map
+                        </label>
+                    </div>
+                    <div class="panel-body map-body">
+                        <div id="map"></div>
+                    </div>
+                </div>
+                
+                <!-- Live Streams Panel (Right) -->
+                <div class="right-streams">
+                    <!-- Console Output -->
+                    <div class="terminal-container">
+                        <div class="terminal-header">
+                            <span>PROCESSING STATION ENGINE LOGS</span>
+                            <span class="terminal-pulse"></span>
+                        </div>
+                        <div class="terminal-body" id="terminal-logs">
+                            <div class="terminal-line">[SYSTEM] Ready. Select video and flight logs to begin.</div>
+                        </div>
+                    </div>
+                    
+                    <!-- Live Detections -->
+                    <div class="glass-panel detections-panel">
+                        <div class="panel-header">
+                            <h2>🚨 Live Detections</h2>
+                            <span class="detections-badge" id="detections-count-badge">0</span>
+                        </div>
+                        <div class="panel-body detections-body">
+                            <div class="detections-scroller">
+                                <div class="detections-grid" id="detections-box">
+                                    <!-- Detection cards dynamically loaded -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <script>
+        // Leaflet Map Initialization
+        // Initialize at Singapore coordinates as a default
+        const map = L.map('map').setView([1.3521, 103.8198], 12);
+        
+        // Premium Dark Matter TileLayer (fits aesthetic beautifully)
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+            attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
+            subdomains: 'abcd',
+            maxZoom: 20
+        }).addTo(map);
+
+        let pathLine = L.polyline([], {color: '#00f0ff', weight: 2, opacity: 0.9}).addTo(map);
+        let flightPathLine = L.polyline([], {color: '#bc13fe', weight: 4, opacity: 0.6, dashArray: '8, 8'}).addTo(map);
+        let markersGroup = L.layerGroup().addTo(map);
+        let currentTaskId = null;
+        let pollInterval = null;
+        let droneMarker = null;
+        
+        // State variables for Step-by-Step wizard
+        let currentStep = 1;
+        let videoFile = null;
+        let telemetryFile = null;
+        let seenDetections = new Set();
+        let videoOverlay = null;
+        let projectVideoOnMap = false;
+        let lastTaskData = null;
+        let videoObjectURL = null;
+
+        // Set default mission date/time to now
+        setTimeout(() => {
+            const localISO = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+            const missionDateEl = document.getElementById('mission-date');
+            if (missionDateEl) {
+                missionDateEl.value = localISO;
+            }
+        }, 100);
+
+        function getVideoObjectURL() {
+            if (!videoObjectURL && videoFile) {
+                videoObjectURL = URL.createObjectURL(videoFile);
+            }
+            return videoObjectURL;
+        }
+
+        // Wizard steps navigation
+        function goToStep(step) {
+            document.getElementById('step-1-section').style.display = 'none';
+            document.getElementById('step-2-section').style.display = 'none';
+            document.getElementById('step-3-section').style.display = 'none';
+
+            if (step === 1) {
+                document.getElementById('step-1-section').style.display = 'block';
+            } else if (step === 2) {
+                document.getElementById('step-2-section').style.display = 'block';
+            } else if (step === 3) {
+                document.getElementById('step-3-section').style.display = 'flex';
+                // Leaflet sizing bug fix for hidden maps:
+                setTimeout(() => {
+                    map.invalidateSize();
+                }, 100);
+            }
+
+            const step1 = document.getElementById('step-indicator-1');
+            const step2 = document.getElementById('step-indicator-2');
+            const step3 = document.getElementById('step-indicator-3');
+            const line1 = document.getElementById('step-line-1');
+            const line2 = document.getElementById('step-line-2');
+
+            // Reset stepper states
+            step1.className = 'step-item';
+            step2.className = 'step-item';
+            step3.className = 'step-item';
+            line1.className = 'step-line';
+            line2.className = 'step-line';
+
+            if (step === 1) {
+                step1.classList.add('active');
+                step2.classList.add('pending');
+                step3.classList.add('pending');
+            } else if (step === 2) {
+                step1.classList.add('completed');
+                line1.classList.add('completed');
+                step2.classList.add('active');
+                step3.classList.add('pending');
+            } else if (step === 3) {
+                step1.classList.add('completed');
+                line1.classList.add('completed');
+                step2.classList.add('completed');
+                line2.classList.add('completed');
+                step3.classList.add('active');
+            }
+
+            currentStep = step;
+        }
+
+        // Byte formatter helper
+        function formatBytes(bytes, decimals = 2) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const dm = decimals < 0 ? 0 : decimals;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+        }
+
+        // Validate first step form inputs
+        function checkStep1Validity() {
+            const nextBtn = document.getElementById('step-1-next-btn');
+            if (videoFile && telemetryFile) {
+                nextBtn.removeAttribute('disabled');
+            } else {
+                nextBtn.setAttribute('disabled', 'true');
+            }
+        }
+
+        // File Selection Handlers
+        function handleVideoSelected(input) {
+            if (input.files && input.files.length > 0) {
+                videoFile = input.files[0];
+                document.getElementById('video-upload-card').classList.add('selected');
+                document.getElementById('video-file-info').style.display = 'flex';
+                document.getElementById('video-file-info-name').textContent = videoFile.name;
+                document.getElementById('video-file-info-size').textContent = formatBytes(videoFile.size);
+                document.getElementById('video-upload-prompt').style.display = 'none';
+            } else {
+                videoFile = null;
+                document.getElementById('video-upload-card').classList.remove('selected');
+                document.getElementById('video-file-info').style.display = 'none';
+                document.getElementById('video-upload-prompt').style.display = 'block';
+            }
+            checkStep1Validity();
+        }
+
+        function handleTelemetrySelected(input) {
+            if (input.files && input.files.length > 0) {
+                telemetryFile = input.files[0];
+                document.getElementById('telemetry-upload-card').classList.add('selected');
+                document.getElementById('telemetry-file-info').style.display = 'flex';
+                document.getElementById('telemetry-file-info-name').textContent = telemetryFile.name;
+                document.getElementById('telemetry-file-info-size').textContent = formatBytes(telemetryFile.size);
+                document.getElementById('telemetry-upload-prompt').style.display = 'none';
+            } else {
+                telemetryFile = null;
+                document.getElementById('telemetry-upload-card').classList.remove('selected');
+                document.getElementById('telemetry-file-info').style.display = 'none';
+                document.getElementById('telemetry-upload-prompt').style.display = 'block';
+            }
+            checkStep1Validity();
+        }
+
+        // File Removal Functions
+        function clearVideoFile(e) {
+            e.stopPropagation();
+            document.getElementById('video-input').value = '';
+            handleVideoSelected(document.getElementById('video-input'));
+        }
+
+        function clearTelemetryFile(e) {
+            e.stopPropagation();
+            document.getElementById('telemetry-input').value = '';
+            handleTelemetrySelected(document.getElementById('telemetry-input'));
+        }
+
+        // Drag and Drop Ingestion Support
+        const videoCard = document.getElementById('video-upload-card');
+        const telemetryCard = document.getElementById('telemetry-upload-card');
+
+        ['dragenter', 'dragover'].forEach(eventName => {
+            videoCard.addEventListener(eventName, (e) => {
+                e.preventDefault();
+                videoCard.classList.add('dragover');
+            }, false);
+            telemetryCard.addEventListener(eventName, (e) => {
+                e.preventDefault();
+                telemetryCard.classList.add('dragover');
+            }, false);
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            videoCard.addEventListener(eventName, (e) => {
+                e.preventDefault();
+                videoCard.classList.remove('dragover');
+            }, false);
+            telemetryCard.addEventListener(eventName, (e) => {
+                e.preventDefault();
+                telemetryCard.classList.remove('dragover');
+            }, false);
+        });
+
+        videoCard.addEventListener('drop', (e) => {
+            const dt = e.dataTransfer;
+            const files = dt.files;
+            if (files.length > 0 && files[0].name.toLowerCase().endsWith('.mp4')) {
+                document.getElementById('video-input').files = files;
+                handleVideoSelected(document.getElementById('video-input'));
+            } else if (files.length > 0) {
+                alert('⚠️ Please select a valid drone flight video (.mp4 format).');
+            }
+        });
+
+        telemetryCard.addEventListener('drop', (e) => {
+            const dt = e.dataTransfer;
+            const files = dt.files;
+            if (files.length > 0 && (files[0].name.toLowerCase().endsWith('.csv') || files[0].name.toLowerCase().endsWith('.srt'))) {
+                document.getElementById('telemetry-input').files = files;
+                handleTelemetrySelected(document.getElementById('telemetry-input'));
+            } else if (files.length > 0) {
+                alert('⚠️ Please select a valid flight telemetry log (.csv or .srt format).');
+            }
+        });
+
+        // Step 2 Custom weight UI details
+        function modelTypeChanged(select) {
+            const customContainer = document.getElementById('custom-model-container');
+            if (select.value === 'custom') {
+                customContainer.style.display = 'block';
+            } else {
+                customContainer.style.display = 'none';
+            }
+        }
+
+        function customModelSelected(input) {
+            const label = document.getElementById('custom-model-file-name');
+            if (input.files && input.files.length > 0) {
+                label.textContent = `📄 ${input.files[0].name} (${formatBytes(input.files[0].size)})`;
+                label.style.color = 'var(--success-color)';
+            } else {
+                label.textContent = `Click to select custom weights (.pt)`;
+                label.style.color = '';
+            }
+        }
+
+        function resetWizard() {
+            document.getElementById('video-input').value = '';
+            document.getElementById('telemetry-input').value = '';
+            document.getElementById('custom-model-file').value = '';
+            document.getElementById('confidence-range').value = '70';
+            document.getElementById('conf-val').textContent = '70%';
+            
+            videoFile = null;
+            telemetryFile = null;
+            seenDetections.clear();
+            
+            document.getElementById('video-upload-card').classList.remove('selected');
+            document.getElementById('video-file-info').style.display = 'none';
+            document.getElementById('video-upload-prompt').style.display = 'block';
+
+            document.getElementById('telemetry-upload-card').classList.remove('selected');
+            document.getElementById('telemetry-file-info').style.display = 'none';
+            document.getElementById('telemetry-upload-prompt').style.display = 'block';
+
+            document.getElementById('custom-model-file-name').textContent = 'Click to select custom weights (.pt)';
+            document.getElementById('custom-model-file-name').style.color = '';
+            document.getElementById('model-select').value = 'solar_panel.pt';
+            document.getElementById('custom-model-container').style.display = 'none';
+            
+            pathLine.setLatLngs([]);
+            flightPathLine.setLatLngs([]);
+            markersGroup.clearLayers();
+            if (droneMarker) {
+                droneMarker.remove();
+                droneMarker = null;
+            }
+            if (videoOverlay) {
+                videoOverlay.remove();
+                videoOverlay = null;
+            }
+            if (videoObjectURL) {
+                URL.revokeObjectURL(videoObjectURL);
+                videoObjectURL = null;
+            }
+            projectVideoOnMap = false;
+            document.getElementById('video-overlay-toggle').checked = false;
+            lastTaskData = null;
+            
+            checkStep1Validity();
+            goToStep(1);
+        }
+
+        // Form submission triggers background processing task
+        document.getElementById('processing-form').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const videoFileObj = document.getElementById('video-input').files[0];
+            const telemetryFileObj = document.getElementById('telemetry-input').files[0];
+            const modelSelect = document.getElementById('model-select').value;
+            const customModelFileObj = document.getElementById('custom-model-file').files[0];
+            const interval = document.getElementById('interval-select').value;
+
+            if (!videoFileObj || !telemetryFileObj) {
+                alert('⚠️ Please select both a drone flight video and a telemetry log file.');
+                goToStep(1);
+                return;
+            }
+
+            if (modelSelect === 'custom' && !customModelFileObj) {
+                alert('⚠️ Please upload your custom YOLO model weights (.pt file).');
+                return;
+            }
+
+            // Transition directly to Step 3 Monitoring
+            goToStep(3);
+            
+            const confidenceVal = parseFloat(document.getElementById('confidence-range').value) / 100.0;
+
+            // Hide Start New Session button while processing, set initial states
+            document.getElementById('new-session-btn').style.display = 'none';
+            document.getElementById('task-status-label').textContent = 'Status: STARTING';
+            document.getElementById('task-percent-label').textContent = '0%';
+            document.getElementById('task-progress-fill').style.width = '0%';
+            document.getElementById('terminal-task-id').textContent = 'TASK: INITIALIZING...';
+            document.getElementById('terminal-logs').innerHTML = '';
+            document.getElementById('detections-box').innerHTML = '';
+            document.getElementById('detections-count-badge').textContent = '0';
+            
+            seenDetections.clear();
+            markersGroup.clearLayers();
+            pathLine.setLatLngs([]);
+            flightPathLine.setLatLngs([]);
+            if (droneMarker) {
+                droneMarker.remove();
+                droneMarker = null;
+            }
+            addTerminalLine('🚀 Initiating ingestion pipelines & background YOLO thread...', 'success');
+            
+            let videoUrl = null;
+            let gcsVideoPath = null;
+            
+            // Try to get a signed upload URL from the backend if it's configured
+            try {
+                addTerminalLine('🔄 Requesting signed upload URL for video...');
+                const signedUrlResponse = await fetch(`/api/process/signed-upload-url?filename=${encodeURIComponent(videoFileObj.name)}`);
+                if (signedUrlResponse.ok) {
+                    const signedData = await signedUrlResponse.json();
+                    const signedUrl = signedData.signed_url;
+                    const publicUrl = signedData.public_url;
+                    const filePath = signedData.gcs_video_path;
+                    
+                    addTerminalLine('📤 Uploading video directly to Google Cloud Storage (bypassing server limits)...');
+                    
+                    // Upload file to the signed URL using XMLHttpRequest to track progress
+                    let lastLoggedPercent = -10;
+                    const uploadPromise = new Promise((resolve, reject) => {
+                        const xhr = new XMLHttpRequest();
+                        xhr.open('PUT', signedUrl);
+                        xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+                        
+                        xhr.upload.onprogress = (event) => {
+                            if (event.lengthComputable) {
+                                const percentComplete = Math.round((event.loaded / event.total) * 100);
+                                const loadedMB = (event.loaded / (1024 * 1024)).toFixed(1);
+                                const totalMB = (event.total / (1024 * 1024)).toFixed(1);
+                                
+                                // Print every 10% change to keep logs readable
+                                if (percentComplete - lastLoggedPercent >= 10 || percentComplete === 100) {
+                                    addTerminalLine(`📤 Upload progress: ${percentComplete}% (${loadedMB}MB / ${totalMB}MB)`);
+                                    lastLoggedPercent = percentComplete;
+                                }
+                            }
+                        };
+                        
+                        xhr.onload = () => {
+                            if (xhr.status >= 200 && xhr.status < 300) {
+                                resolve();
+                            } else {
+                                reject(new Error(`GCS upload failed (HTTP ${xhr.status}): ${xhr.statusText || 'Unknown error'}`));
+                            }
+                        };
+                        
+                        xhr.onerror = () => {
+                            reject(new Error('Network error during Google Cloud Storage upload.'));
+                        };
+                        
+                        xhr.send(videoFileObj);
+                    });
+                    
+                    await uploadPromise;
+                    
+                    addTerminalLine('✅ Video uploaded successfully to Google Cloud Storage.', 'success');
+                    videoUrl = publicUrl;
+                    gcsVideoPath = filePath;
+                } else {
+                    addTerminalLine('⚠️ Google Cloud Storage not configured. Falling back to direct server upload...');
+                }
+            } catch (uploadErr) {
+                console.warn('Signed upload failed, falling back to direct upload:', uploadErr);
+                addTerminalLine(`⚠️ Upload to Google Cloud Storage failed (${uploadErr.message}). Falling back to direct server upload...`);
+            }
+
+            // Build FormData
+            const formData = new FormData();
+            if (gcsVideoPath) {
+                formData.append('gcs_video_path', gcsVideoPath);
+                if (videoUrl) {
+                    formData.append('video_url', videoUrl);
+                }
+            } else {
+                formData.append('video', videoFileObj);
+            }
+            formData.append('telemetry', telemetryFileObj);
+            formData.append('interval_ms', interval);
+            formData.append('min_confidence', confidenceVal);
+            
+            if (modelSelect === 'custom') {
+                formData.append('custom_model', customModelFileObj);
+            } else {
+                formData.append('model_name', modelSelect);
+            }
+
+            const missionTitle = document.getElementById('mission-title').value;
+            const missionDate = document.getElementById('mission-date').value;
+            if (missionTitle) formData.append('mission_title', missionTitle);
+            if (missionDate) formData.append('mission_date', missionDate);
+
+            try {
+                const response = await fetch('/api/process', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!response.ok) {
+                    throw new Error(await response.text());
+                }
+
+                const data = await response.json();
+                currentTaskId = data.task_id;
+                
+                document.getElementById('terminal-task-id').textContent = `TASK: ${currentTaskId.substring(0, 8)}...`;
+                addTerminalLine('🚀 Ingestion request accepted. Background engine worker running.', 'success');
+
+                // Start polling status
+                pollInterval = setInterval(pollTaskStatus, 1000);
+
+            } catch (err) {
+                alert(`Error starting process: ${err.message}`);
+                document.getElementById('task-status-label').textContent = 'Status: FAILED';
+                addTerminalLine(`❌ API Exception: ${err.message}`, 'error');
+                document.getElementById('new-session-btn').style.display = 'inline-block';
+            }
+        });
+
+        function updateDroneMarker(currentDroneLoc) {
+            if (!currentDroneLoc) return;
+            const heading = currentDroneLoc.heading || 0;
+            
+            let droneIcon;
+            if (projectVideoOnMap) {
+                droneIcon = L.divIcon({
+                    className: 'drone-video-icon',
+                    html: `<div style="width: 50px; height: 50px; rotate: ${heading}deg; transform-origin: center; display: flex; align-items: center; justify-content: center;">
+                        <svg viewBox="0 0 64 64" width="50" height="50" style="filter: drop-shadow(0 0 8px var(--primary-glow));">
+                            <circle cx="32" cy="32" r="6" fill="#00f2ff" />
+                            <line x1="32" y1="32" x2="16" y2="16" stroke="#00f2ff" stroke-width="3" stroke-linecap="round" />
+                            <line x1="32" y1="32" x2="48" y2="48" stroke="#00f2ff" stroke-width="3" stroke-linecap="round" />
+                            <line x1="32" y1="32" x2="48" y2="16" stroke="#00f2ff" stroke-width="3" stroke-linecap="round" />
+                            <line x1="32" y1="32" x2="16" y2="48" stroke="#00f2ff" stroke-width="3" stroke-linecap="round" />
+                            <circle cx="16" cy="16" r="4" fill="#bc13fe" />
+                            <circle cx="48" cy="48" r="4" fill="#bc13fe" />
+                            <circle cx="48" cy="16" r="4" fill="#bc13fe" />
+                            <circle cx="16" cy="48" r="4" fill="#bc13fe" />
+                            <polygon points="32,18 28,26 36,26" fill="#eef4f8" />
+                        </svg>
+                    </div>`,
+                    iconSize: [50, 50],
+                    iconAnchor: [25, 25]
+                });
+            } else {
+                droneIcon = L.divIcon({
+                    className: 'drone-video-icon',
+                    html: `<div style="width: 130px; height: 80px; border-radius: 8px; border: 2.5px solid var(--primary-glow); overflow: hidden; box-shadow: 0 0 15px var(--primary-glow); background: #000;"><video id="drone-map-video" style="width:100%; height:100%; object-fit:cover;" muted autoplay playsinline loop></video></div>`,
+                    iconSize: [130, 80],
+                    iconAnchor: [65, 40]
+                });
+            }
+            
+            if (!droneMarker) {
+                droneMarker = L.marker([currentDroneLoc.lat, currentDroneLoc.lng], {icon: droneIcon}).addTo(map);
+                if (!projectVideoOnMap) {
+                    const videoEl = document.getElementById('drone-map-video');
+                    if (videoEl && videoFile) {
+                        videoEl.src = getVideoObjectURL();
+                        videoEl.play().catch(err => console.log('Autoplay blocked: ', err));
+                    }
+                }
+            } else {
+                droneMarker.setLatLng([currentDroneLoc.lat, currentDroneLoc.lng]);
+                if (projectVideoOnMap) {
+                    droneMarker.setIcon(droneIcon);
+                } else {
+                    const hasVideo = document.getElementById('drone-map-video');
+                    if (!hasVideo) {
+                        droneMarker.setIcon(droneIcon);
+                        const videoEl = document.getElementById('drone-map-video');
+                        if (videoEl && videoFile) {
+                            videoEl.src = getVideoObjectURL();
+                            videoEl.play().catch(err => {});
+                        }
+                    }
+                }
+            }
+            
+            // Sync drone PIP video time if it is present
+            if (!projectVideoOnMap && lastTaskData) {
+                const videoEl = document.getElementById('drone-map-video');
+                if (videoEl && videoEl.duration) {
+                    const targetTime = (lastTaskData.progress_percent / 100) * videoEl.duration;
+                    if (Math.abs(videoEl.currentTime - targetTime) > 1.2) {
+                        videoEl.currentTime = targetTime;
+                    }
+                    if (videoEl.paused && lastTaskData.status === 'processing') {
+                        videoEl.play().catch(err => {});
+                    }
+                }
+            }
+        }
+
+        function updateVideoOverlay(currentDroneLoc) {
+            if (!projectVideoOnMap || !currentDroneLoc || !videoFile || !lastTaskData) {
+                if (videoOverlay) {
+                    videoOverlay.remove();
+                    videoOverlay = null;
+                }
+                return;
+            }
+            
+            const lat = currentDroneLoc.lat;
+            const lng = currentDroneLoc.lng;
+            const alt = currentDroneLoc.alt || 15.0;
+            const heading = currentDroneLoc.heading || 0.0;
+            
+            const fovDegrees = 59.0;
+            const fovRad = fovDegrees * Math.PI / 180;
+            const diagonalDistance = alt * Math.tan(fovRad);
+            
+            // Conformal 1:1 square container size based on video ground width
+            // This prevents video distortion during Leaflet axis-aligned element rotation
+            const widthRatio = 16 / Math.sqrt(337); // ≈ 0.871578
+            const containerSide = widthRatio * diagonalDistance;
+            const halfSide = containerSide / 2;
+            
+            const R_EARTH = 6378137;
+            const dLat = (halfSide / R_EARTH) * (180 / Math.PI);
+            const dLng = (halfSide / (R_EARTH * Math.cos(lat * Math.PI / 180))) * (180 / Math.PI);
+            
+            const bounds = [
+                [lat - dLat, lng - dLng],
+                [lat + dLat, lng + dLng]
+            ];
+            
+            if (!videoOverlay) {
+                videoOverlay = L.videoOverlay(getVideoObjectURL(), bounds, {
+                    opacity: 0.75,
+                    interactive: false,
+                    autoplay: true,
+                    muted: true,
+                    playsInline: true
+                }).addTo(map);
+            } else {
+                videoOverlay.setBounds(bounds);
+            }
+            
+            const mapVideo = videoOverlay.getElement();
+            if (mapVideo) {
+                mapVideo.style.width = '100%';
+                mapVideo.style.height = '100%';
+                mapVideo.style.objectFit = 'contain';
+                mapVideo.style.rotate = `${heading}deg`;
+                mapVideo.style.transformOrigin = 'center';
+                
+                if (mapVideo.duration) {
+                    const targetTime = (lastTaskData.progress_percent / 100) * mapVideo.duration;
+                    if (Math.abs(mapVideo.currentTime - targetTime) > 1.2) {
+                        mapVideo.currentTime = targetTime;
+                    }
+                    if (mapVideo.paused && lastTaskData.status === 'processing') {
+                        mapVideo.play().catch(err => {});
+                    }
+                }
+            }
+        }
+
+        function toggleVideoOverlay(checked) {
+            projectVideoOnMap = checked;
+            if (!checked) {
+                if (videoOverlay) {
+                    videoOverlay.remove();
+                    videoOverlay = null;
+                }
+                if (droneMarker && lastTaskData && lastTaskData.flight_path && lastTaskData.flight_path.length > 0) {
+                    const progressIdx = Math.min(
+                        lastTaskData.flight_path.length - 1,
+                        Math.floor((lastTaskData.progress_percent / 100) * lastTaskData.flight_path.length)
+                    );
+                    const currentDroneLoc = lastTaskData.flight_path[progressIdx];
+                    updateDroneMarker(currentDroneLoc);
+                }
+            } else if (lastTaskData && lastTaskData.flight_path && lastTaskData.flight_path.length > 0) {
+                const progressIdx = Math.min(
+                    lastTaskData.flight_path.length - 1,
+                    Math.floor((lastTaskData.progress_percent / 100) * lastTaskData.flight_path.length)
+                );
+                const currentDroneLoc = lastTaskData.flight_path[progressIdx];
+                updateVideoOverlay(currentDroneLoc);
+                updateDroneMarker(currentDroneLoc);
+            }
+        }
+
+        // Status Polling Loop
+        async function pollTaskStatus() {
+            if (!currentTaskId) return;
+
+            try {
+                const response = await fetch(`/api/process/status/${currentTaskId}`);
+                if (!response.ok) return;
+
+                const data = await response.json();
+                lastTaskData = data;
+                
+                // Update Progress metrics
+                let progressText = `${data.progress_percent}%`;
+                if (data.current_time_s !== undefined && data.duration_s !== undefined) {
+                    progressText += ` (${data.current_time_s.toFixed(1)}s / ${data.duration_s.toFixed(1)}s)`;
+                }
+                document.getElementById('task-percent-label').textContent = progressText;
+                document.getElementById('task-progress-fill').style.width = `${data.progress_percent}%`;
+                document.getElementById('task-status-label').textContent = `Status: ${data.status.toUpperCase()}`;
+
+                // Update Terminal logs
+                const terminal = document.getElementById('terminal-logs');
+                terminal.innerHTML = '';
+                data.console_logs.forEach(log => {
+                    const line = document.createElement('div');
+                    line.className = 'terminal-line';
+                    if (log.includes('❌') || log.includes('failed')) line.className += ' error';
+                    if (log.includes('🏁') || log.includes('✅')) line.className += ' success';
+                    line.textContent = log;
+                    terminal.appendChild(line);
+                });
+                // Append blinking caret block
+                const caret = document.createElement('span');
+                caret.className = 'caret';
+                terminal.appendChild(caret);
+                 // Update Detections grid
+                const detectionsBox = document.getElementById('detections-box');
+                const badge = document.getElementById('detections-count-badge');
+                
+                detectionsBox.innerHTML = '';
+                
+                const clusters = (data.clusters && data.clusters.length > 0) ? data.clusters : data.detections.map(d => ({
+                    id: d.id,
+                    class: d.class,
+                    max_confidence: d.confidence,
+                    image_url: d.image_url,
+                    avg_latitude: d.latitude,
+                    avg_longitude: d.longitude,
+                    sightings: [d]
+                }));
+
+                badge.textContent = clusters.length;
+                
+                // Redraw map pins cleanly - clear original to fix marker duplication memory leak
+                markersGroup.clearLayers();
+                
+                let latestNewCluster = null;
+                
+                clusters.forEach(cluster => {
+                    // Create Card
+                    const card = document.createElement('div');
+                    card.className = 'detection-card';
+                    
+                    const img = document.createElement('img');
+                    img.className = 'detection-thumb';
+                    img.src = cluster.image_url;
+                    
+                    const info = document.createElement('div');
+                    info.className = 'detection-info';
+                    
+                    const className = document.createElement('div');
+                    className.className = 'detection-class';
+                    className.textContent = cluster.class.toUpperCase();
+                    
+                    // Confidence Color Helper
+                    let confColor = '#FF5D8F'; // low confidence red
+                    if (cluster.max_confidence >= 0.75) confColor = '#00F5D4'; // high confidence cyan
+                    else if (cluster.max_confidence >= 0.5) confColor = '#FFC107'; // mid confidence orange
+                    
+                    const confRow = document.createElement('div');
+                    confRow.style.display = 'flex';
+                    confRow.style.alignItems = 'center';
+                    confRow.style.gap = '6px';
+                    
+                    const confBadge = document.createElement('span');
+                    confBadge.className = 'detection-confidence-badge';
+                    confBadge.style.backgroundColor = confColor;
+                    confBadge.textContent = `${(cluster.max_confidence * 100).toFixed(0)}% CONF`;
+                    
+                    const sightingsBadge = document.createElement('span');
+                    sightingsBadge.style.fontSize = '9px';
+                    sightingsBadge.style.fontWeight = '700';
+                    sightingsBadge.style.color = 'var(--text-secondary)';
+                    sightingsBadge.style.backgroundColor = 'rgba(255, 255, 255, 0.05)';
+                    sightingsBadge.style.padding = '2px 6px';
+                    sightingsBadge.style.borderRadius = '4px';
+                    sightingsBadge.textContent = `${cluster.sightings.length}x`;
+                    
+                    confRow.appendChild(confBadge);
+                    confRow.appendChild(sightingsBadge);
+                    
+                    const coords = document.createElement('div');
+                    coords.className = 'detection-coordinates';
+                    coords.innerHTML = `Approx GPS:<br>Lat: ${cluster.avg_latitude.toFixed(6)}<br>Lon: ${cluster.avg_longitude.toFixed(6)}`;
+                    
+                    info.appendChild(className);
+                    info.appendChild(confRow);
+                    info.appendChild(coords);
+                    card.appendChild(img);
+                    card.appendChild(info);
+                    detectionsBox.appendChild(card);
+                    
+                    // Check if it is a new cluster to trigger flight-zoom
+                    if (!seenDetections.has(cluster.id)) {
+                        seenDetections.add(cluster.id);
+                        latestNewCluster = cluster;
+                    }
+                    
+                    // Draw Marker on map with Picture Representation!
+                    // Show the cropped image thumbnail outlined by the confidence badge color.
+                    const customIcon = L.divIcon({
+                        className: 'custom-div-icon',
+                        html: `<div style="position: relative; width: 44px; height: 44px; border-radius: 6px; border: 2.5px solid ${confColor}; overflow: hidden; box-shadow: 0 0 10px rgba(0,0,0,0.6); background-color: #06080c;"><img src="${cluster.image_url}" style="width: 100%; height: 100%; object-fit: cover;" /></div>`,
+                        iconSize: [44, 44],
+                        iconAnchor: [22, 22]
+                    });
+                    
+                    const marker = L.marker([cluster.avg_latitude, cluster.avg_longitude], {icon: customIcon})
+                        .bindPopup(`<b>${cluster.class.toUpperCase()}</b> (Seen ${cluster.sightings.length}x)<br>
+                                    Max Conf: ${(cluster.max_confidence * 100).toFixed(0)}%<br>
+                                    <b>Approx GPS (Averaged):</b><br>
+                                    Lat: ${cluster.avg_latitude.toFixed(6)}<br>
+                                    Lon: ${cluster.avg_longitude.toFixed(6)}<br>
+                                    <img src="${cluster.image_url}" width="120" style="margin-top:5px;border-radius:4px;"/>`);
+                    markersGroup.addLayer(marker);
+                });
+
+                // Update Flight Path line mapping dynamically (drone track pattern)
+                if (data.flight_path && data.flight_path.length > 0) {
+                    flightPathLine.setLatLngs(data.flight_path);
+                    
+                    const progressIdx = Math.min(
+                        data.flight_path.length - 1,
+                        Math.floor((data.progress_percent / 100) * data.flight_path.length)
+                    );
+                    const currentDroneLoc = data.flight_path[progressIdx];
+                    
+                    if (currentDroneLoc) {
+                        updateDroneMarker(currentDroneLoc);
+                        updateVideoOverlay(currentDroneLoc);
+                    }
+                }
+
+                // Zoom in and fly to the latest new cluster point if one is found
+                if (latestNewCluster) {
+                    map.flyTo([latestNewCluster.avg_latitude, latestNewCluster.avg_longitude], 15, {
+                        animate: true,
+                        duration: 1.2
+                    });
+                } else if (data.flight_path && data.flight_path.length > 0 && flightPathLine.getLatLngs().length === 0) {
+                    // Fit bounds to flight path initially once loaded so map centers on flight zone
+                    const bounds = flightPathLine.getBounds();
+                    if (bounds.isValid()) {
+                        map.fitBounds(bounds, {padding: [40, 40]});
+                    }
+                }
+
+                // Update Pin Path line mapping dynamically (detections connections)
+                const pathCoords = [];
+                clusters.forEach(cluster => {
+                    pathCoords.push([cluster.avg_latitude, cluster.avg_longitude]);
+                });
+                
+                if (pathCoords.length > 0) {
+                    pathLine.setLatLngs(pathCoords);
+                }
+
+                // Stop polling and display restart triggers if completed or failed
+                if (data.status === 'completed' || data.status === 'failed') {
+                    clearInterval(pollInterval);
+                    document.getElementById('new-session-btn').style.display = 'inline-block';
+                    
+                    // Pause drone video playback when finished
+                    const videoEl = document.getElementById('drone-map-video');
+                    if (videoEl) {
+                        videoEl.pause();
+                    }
+                    
+                    if (videoOverlay) {
+                        const mapVideo = videoOverlay.getElement();
+                        if (mapVideo) {
+                            mapVideo.pause();
+                        }
+                    }
+                    
+                    if (data.status === 'completed') {
+                        addTerminalLine('🏁 BACKGROUND TASK COMPLETED SUCCESSFULLY.', 'success');
+                    } else {
+                        addTerminalLine(`❌ BACKGROUND TASK FAILED: ${data.error}`, 'error');
+                    }
+                }
+
+            } catch (err) {
+                console.error('Status polling error:', err);
+            }
+        }
+
+        // Log appending utility
+        function addTerminalLine(text, style = '') {
+            const terminal = document.getElementById('terminal-logs');
+            
+            // Remove caret first if present
+            const existingCaret = terminal.querySelector('.caret');
+            if (existingCaret) existingCaret.remove();
+            
+            const line = document.createElement('div');
+            line.className = 'terminal-line';
+            if (style) line.className += ` ${style}`;
+            const timestamp = new Date().toLocaleTimeString();
+            line.textContent = `[${timestamp}] ${text}`;
+            terminal.appendChild(line);
+            
+            // Append caret back
+            const caret = document.createElement('span');
+            caret.className = 'caret';
+            terminal.appendChild(caret);
+            
+            terminal.scrollTop = terminal.scrollHeight;
+        }
+    </script>
+</body>
+</html>

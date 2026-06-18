@@ -1,0 +1,7 @@
+# Python dependencies for Beach Litter Processing Station
+ultralytics>=8.0.0
+opencv-python>=4.7.0.72
+pandas>=2.0.0
+requests>=2.30.0
+python-dotenv>=1.0.0
+numpy>=1.23.0
