@@ -154,54 +154,57 @@ class TestBeachLitterSystem(unittest.TestCase):
         self.assertIn("tl", translations)
         self.assertEqual(translations["id"], "Peringatan Pembersihan Pantai! Terdeteksi konsentrasi sampah yang tinggi. Harap periksa peta Anda untuk pembagian zona.")
 
-    @patch('processing_task.start_processing_task')
-    def test_process_endpoint_custom_model(self, mock_start_task):
-        mock_start_task.return_value = "mock-task-id-custom"
-        
-        file_payload = {
-            "video": ("video.mp4", b"fake-video-bytes", "video/mp4"),
-            "telemetry": ("telemetry.csv", b"timestamp_ms,latitude,longitude,altitude\n0,1.2000,103.8000,10.0", "text/csv"),
-            "custom_model": ("custom_weights.pt", b"fake-pt-bytes", "application/octet-stream")
+    # A .pt file is pickled Python: loading one executes whatever it contains.
+    # The endpoint used to accept uploaded weights and a weights URL, which made
+    # remote code execution a documented feature. Both were removed; weights now
+    # resolve only against the server's own models directory. These tests pin
+    # that down, because the failure mode is silent and total.
+    def _weights_attack_payload(self, model_name):
+        return {
+            "files": {
+                "video": ("video.mp4", b"fake-video-bytes", "video/mp4"),
+                "telemetry": ("telemetry.csv",
+                              b"timestamp_ms,latitude,longitude,altitude\n0,1.2000,103.8000,10.0",
+                              "text/csv"),
+            },
+            "data": {"model_name": model_name, "interval_ms": "1000", "min_confidence": "0.40"},
         }
-        form_payload = {
-            "model_name": "custom",
-            "interval_ms": "1000",
-            "min_confidence": "0.35"
-        }
-        response = self.client.post("/api/process", data=form_payload, files=file_payload)
-        self.assertEqual(response.status_code, 200)
-        res_data = response.json()
-        self.assertEqual(res_data["status"], "pending")
-        self.assertEqual(res_data["task_id"], "mock-task-id-custom")
-        
-        mock_start_task.assert_called_once()
-        args, kwargs = mock_start_task.call_args
-        model_path = kwargs["model_path"]
-        self.assertIn("temp_uploads", model_path)
-        self.assertTrue(model_path.endswith("_custom_weights.pt"))
-        
-        # Clean up files created during test
-        if os.path.exists(kwargs["video_path"]):
-            os.remove(kwargs["video_path"])
-        if os.path.exists(kwargs["telemetry_path"]):
-            os.remove(kwargs["telemetry_path"])
-        if os.path.exists(model_path):
-            os.remove(model_path)
 
-    def test_process_endpoint_custom_model_invalid_extension(self):
-        file_payload = {
-            "video": ("video.mp4", b"fake-video-bytes", "video/mp4"),
-            "telemetry": ("telemetry.csv", b"timestamp_ms,latitude,longitude,altitude\n0,1.2000,103.8000,10.0", "text/csv"),
-            "custom_model": ("invalid_weights.txt", b"fake-txt-bytes", "text/plain")
-        }
-        form_payload = {
-            "model_name": "custom",
-            "interval_ms": "1000",
-            "min_confidence": "0.35"
-        }
-        response = self.client.post("/api/process", data=form_payload, files=file_payload)
+    def test_process_endpoint_rejects_unknown_model_name(self):
+        p = self._weights_attack_payload("custom")
+        response = self.client.post("/api/process", data=p["data"], files=p["files"])
         self.assertEqual(response.status_code, 400)
-        self.assertIn("Only .pt (PyTorch) model weights files are allowed.", response.json()["detail"])
+        self.assertIn("Unknown model", response.json()["detail"])
+
+    def test_process_endpoint_rejects_path_traversal_in_model_name(self):
+        for name in ("../../etc/passwd", "/etc/passwd", "../models/beach_litter.pt"):
+            with self.subTest(model_name=name):
+                p = self._weights_attack_payload(name)
+                response = self.client.post("/api/process", data=p["data"], files=p["files"])
+                self.assertEqual(response.status_code, 400)
+                self.assertIn("Unknown model", response.json()["detail"])
+                # The rejection must not echo the attacker's path back.
+                self.assertNotIn("etc/passwd", response.json()["detail"])
+
+    def test_process_endpoint_ignores_uploaded_weights_and_urls(self):
+        """An uploaded .pt or a model_url must not be honoured at all."""
+        p = self._weights_attack_payload("custom")
+        p["files"]["custom_model"] = ("evil.pt", b"fake-pt-bytes", "application/octet-stream")
+        p["data"]["model_url"] = "https://example.invalid/evil.pt"
+        response = self.client.post("/api/process", data=p["data"], files=p["files"])
+        # Still rejected on the *name*: the extra fields are simply not read.
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Unknown model", response.json()["detail"])
+
+    def test_safe_upload_name_neutralises_traversal(self):
+        from routes import safe_upload_name
+        self.assertEqual(safe_upload_name("../../../etc/passwd"), "passwd")
+        self.assertEqual(safe_upload_name("/abs/path/x.mp4"), "x.mp4")
+        self.assertEqual(safe_upload_name(""), "upload")
+        self.assertEqual(safe_upload_name(None), "upload")
+        # Ordinary DJI names must survive untouched.
+        self.assertEqual(safe_upload_name("DJI_0113.MP4"), "DJI_0113.MP4")
+        self.assertNotIn("/", safe_upload_name("a/b/c.pt"))
 
     def test_telemetry_srt_bracketed_format(self):
         from georeferencer import TelemetryInterpolator as PSTelemetryInterpolator

@@ -130,7 +130,7 @@ Before running a real flight test, verify that the backend process endpoint succ
 > ```text
 > Run the system tests to verify that custom weights uploads and georeferencing pipelines are fully operational:
 > 1. Run the Python unit tests in `test_system.py` inside the workspace root.
-> 2. Verify that both the standard tests and the custom model tests (`test_process_endpoint_custom_model` and `test_process_endpoint_custom_model_invalid_extension`) pass.
+> 2. Verify all tests pass, including the weights-handling tests (`test_process_endpoint_rejects_unknown_model_name`, `test_process_endpoint_rejects_path_traversal_in_model_name`, `test_process_endpoint_ignores_uploaded_weights_and_urls`). Uploaded weights and weights URLs were removed: a `.pt` is pickled Python, so accepting either is remote code execution. Models are installed server-side with `python -m model_source install`.
 > 3. Report any failures or resource warnings.
 > ```
 
