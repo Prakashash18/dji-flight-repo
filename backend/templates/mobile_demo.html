@@ -632,7 +632,12 @@
         `<div class="prep-step ${x.cls}"><span class="mark">${esc(x.mark)}</span>` +
         `<span class="txt">${esc(x.row.label || x.row.key)}</span></div>`).join('');
     }
-    $('prep-count').textContent = `Step ${at + 1} of ${all.length}`;
+    const eta = s.eta_seconds;
+    const left = (eta == null) ? ''
+      : eta < 20 ? ' · almost there'
+      : eta < 90 ? ` · about ${Math.round(eta / 10) * 10}s left`
+      : ` · about ${Math.round(eta / 60)} min left`;
+    $('prep-count').textContent = `Step ${at + 1} of ${all.length}${left}`;
 
     const dots = $('prep-dots');
     if (dots.children.length !== all.length) {

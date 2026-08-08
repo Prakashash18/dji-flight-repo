@@ -350,6 +350,10 @@ def start_processing_task(video_path: str, telemetry_path: str, model_path: str,
     PROCESSING_TASKS[task_id] = {
         "task_id": task_id,
         "status": "pending",
+        # Wall clock when the patrol was accepted. The only honest basis for an
+        # ETA: frames done over time elapsed, rather than a guess baked in from
+        # one machine's benchmark.
+        "started_at": time.time(),
         "progress_percent": 0,
         "current_time_s": 0.0,
         "duration_s": 0.0,

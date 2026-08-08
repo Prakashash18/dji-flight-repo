@@ -3318,15 +3318,28 @@
         // the moment they open the page, not only after they click.
         let stationBusy = false;
 
-        function applyBusyState(live, pct) {
+        /** "about 40 seconds" reads better to a waiting human than "37s". */
+        function humanEta(sec) {
+            if (sec == null) return '';
+            if (sec < 20) return 'less than 20 seconds';
+            if (sec < 90) return `about ${Math.round(sec / 10) * 10} seconds`;
+            const m = Math.round(sec / 60);
+            return `about ${m} minute${m === 1 ? '' : 's'}`;
+        }
+
+        function applyBusyState(live, pct, eta) {
             stationBusy = !!live;
             const banner = document.getElementById('busy-banner');
             const text = document.getElementById('busy-banner-text');
             if (banner) {
                 banner.style.display = live ? 'block' : 'none';
                 if (live && text) {
-                    text.textContent = `A patrol is already running on this station (${pct}% complete) — `
-                                     + `wait for it to finish before starting another.`;
+                    const left = humanEta(eta);
+                    text.textContent = left
+                        ? `A patrol is running on this station — ${pct}% done, finishing in ${left}. `
+                          + `You can watch it below; starting another is disabled until it ends.`
+                        : `A patrol is starting on this station — you can watch it below. `
+                          + `Starting another is disabled until it ends.`;
                 }
             }
             // Disable rather than hide: a greyed control explains itself, a
@@ -3347,7 +3360,7 @@
                                       { cache: 'no-store' });
                 if (!r.ok) return;
                 const d = await r.json();
-                applyBusyState(!!d.live, d.progress_percent || 0);
+                applyBusyState(!!d.live, d.progress_percent || 0, d.eta_seconds);
             } catch (e) { /* transient: leave the last known state alone */ }
         }
         pollStationBusy();

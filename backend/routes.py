@@ -709,6 +709,28 @@ def _derive_live_lists(task: dict):
     return _live_cache["detections"], _live_cache["pins"]
 
 
+def _eta_seconds(task: dict) -> Optional[int]:
+    """
+    Rough seconds remaining for a running patrol.
+
+    Deliberately conservative about when it speaks: below 5% the sample is too
+    small and the number jumps around, which reads as the station guessing.
+    """
+    import time as _time
+
+    if task.get("status") != "processing":
+        return None
+    pct = task.get("progress_percent") or 0
+    started = task.get("started_at")
+    if not started or pct < 5:
+        return None
+    elapsed = _time.time() - started
+    if elapsed <= 0:
+        return None
+    remaining = elapsed * (100.0 - pct) / pct
+    return int(max(1, min(remaining, 3600)))
+
+
 def _active_task() -> Optional[dict]:
     """The mission currently being processed, if any."""
     from processing_task import PROCESSING_TASKS
@@ -807,6 +829,11 @@ async def get_live_state(since: int = 0, pins_since: int = 0, frames_since: int 
         "title": "Live patrol",
         "location": settings.SAMPLE_LOCATION_LABEL,
         "progress_percent": task.get("progress_percent", 0),
+        # Seconds left, measured rather than assumed: how long this run has
+        # actually taken to reach this percentage, extrapolated. None until
+        # there is enough progress for the estimate to mean anything — an ETA
+        # that swings wildly in the first seconds is worse than none.
+        "eta_seconds": _eta_seconds(task),
         "current_time_s": task.get("current_time_s", 0),
         "duration_s": task.get("duration_s", 0),
         "stage": {
