@@ -931,11 +931,40 @@ async def get_demo_data():
     }
 
 
+@router.get("/station/access")
+async def station_access(request: Request):
+    """
+    Whether this browser may start a patrol, and whether the station is free.
+
+    The dashboard asks before letting anyone into the upload and configure
+    steps. Filling in a whole wizard only to be refused at the last click is a
+    poor way to find out you are a spectator.
+    """
+    from processing_task import PROCESSING_TASKS
+
+    key_ok = (not settings.STATION_KEY) or \
+             request.headers.get("x-station-key", "") == settings.STATION_KEY
+    active = next((t for t in PROCESSING_TASKS.values()
+                   if t.get("status") == "processing"), None)
+    return {
+        "key_required": bool(settings.STATION_KEY),
+        "key_ok": key_ok,
+        "busy": active is not None,
+        "progress_percent": (active or {}).get("progress_percent", 0),
+        "eta_seconds": _eta_seconds(active) if active else None,
+    }
+
+
 @router.get("/process/signed-upload-url")
-async def get_signed_upload_url(filename: str):
+async def get_signed_upload_url(request: Request, filename: str):
     """
     Generates a signed upload URL for uploading large video files directly to Google Cloud Storage.
     """
+    # Same gate as /api/process. This is the other way footage gets in, so
+    # leaving it open would make the key on the launch endpoint decorative.
+    if settings.STATION_KEY and request.headers.get("x-station-key", "") != settings.STATION_KEY:
+        raise HTTPException(status_code=403,
+                            detail="This station is view-only. Enter the operator key to upload footage.")
     if not gcs_client:
         raise HTTPException(status_code=400, detail="Google Cloud Storage client is not initialized.")
     try:

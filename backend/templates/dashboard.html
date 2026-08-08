@@ -2184,7 +2184,7 @@
 
                 <div class="navigation-bar">
                     <div></div> <!-- spacer -->
-                    <button type="button" id="step-1-next-btn" class="btn btn-primary" onclick="goToStep(2)">
+                    <button type="button" id="step-1-next-btn" class="btn btn-primary" onclick="gatedGoToStep(2)">
                         <span>Configure Settings</span>
                         <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" style="width: 16px; height: 16px;">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
@@ -2728,7 +2728,14 @@
          * there is nothing to upload. Skips straight to the live monitor with the
          * tuned defaults and the video projecting onto the map.
          */
+        /** Step navigation that first asks whether this browser may drive. */
+        async function gatedGoToStep(step) {
+            if (step >= 2 && !(await requireOperator())) return;
+            goToStep(step);
+        }
+
         async function runSample() {
+            if (!(await requireOperator())) return;
             const btn = document.getElementById('run-sample-btn');
             btn.disabled = true;
             btn.querySelector('span').textContent = 'Starting…';
@@ -2826,6 +2833,54 @@
         });
 
         // Wizard steps navigation
+        /**
+         * May this browser drive the station?
+         *
+         * Asked before the upload and configure steps, not at the final click.
+         * Someone who is only here to watch should learn that immediately, and
+         * someone who holds the key should not fill in a wizard that a running
+         * patrol is going to reject anyway.
+         */
+        async function checkStationAccess() {
+            try {
+                const key = localStorage.getItem('stationKey') || '';
+                const r = await fetch('/api/station/access',
+                                      { headers: key ? { 'X-Station-Key': key } : {},
+                                        cache: 'no-store' });
+                if (!r.ok) return { key_ok: true, busy: false };   // fail open, /api/process still guards
+                return await r.json();
+            } catch (e) {
+                return { key_ok: true, busy: false };
+            }
+        }
+
+        async function requireOperator() {
+            let a = await checkStationAccess();
+
+            if (a.busy) {
+                alert(`A patrol is already running on this station — ${a.progress_percent}% done`
+                    + (a.eta_seconds ? `, finishing in ${humanEta(a.eta_seconds)}` : '')
+                    + `.\n\nYou can watch it live below. Starting another is disabled `
+                    + `until it finishes.`);
+                return false;
+            }
+
+            if (a.key_required && !a.key_ok) {
+                const k = window.prompt(
+                    'Operator key\n\nThis station is view-only — you can watch the live patrol, '
+                  + 'the map and the findings without it.\n\nEnter the key to run a patrol:');
+                if (k === null || !k.trim()) return false;
+                localStorage.setItem('stationKey', k.trim());
+                a = await checkStationAccess();
+                if (!a.key_ok) {
+                    localStorage.removeItem('stationKey');
+                    alert('That key was not accepted. The station stays view-only.');
+                    return false;
+                }
+            }
+            return true;
+        }
+
         function goToStep(step) {
             document.getElementById('step-1-section').style.display = 'none';
             document.getElementById('step-2-section').style.display = 'none';
