@@ -1,0 +1,30 @@
+# RunPod dependencies, for a pod built on a RunPod PyTorch image.
+#
+# torch and torchvision are deliberately absent. The image already has a build
+# matched to its CUDA version — on a Blackwell card (RTX PRO 4500/6000, RTX
+# 5090) that is a cu128 build carrying sm_120 kernels, and PyPI's generic wheel
+# does not. If pip replaces it, the pod still starts, reports a GPU, and then
+# either throws "no kernel image is available for execution on the device" or
+# quietly runs on CPU at roughly 1/20th the speed.
+#
+# ultralytics is installed separately with --no-deps for the same reason: left
+# to itself it resolves a torch of its own choosing.
+#
+# opencv-python IS included here (unlike the Jetson list) — on x86 the pip wheel
+# is fine, there is no vendor build to shadow.
+
+fastapi>=0.95.0
+uvicorn>=0.22.0
+pydantic>=2.0
+supabase>=1.0.3
+python-dotenv>=1.0.0
+httpx>=0.24.0
+python-multipart>=0.0.6
+sahi>=0.11.14
+gdown>=5.1.0
+opencv-python>=4.7.0.72
+pandas>=2.0.0
+numpy>=1.23.0
+google-cloud-storage>=2.0.0
+reportlab>=4.0.0
+qrcode>=7.4

@@ -16,13 +16,29 @@ mid-flight"*.
 
 | setting | value | why |
 |---|---|---|
-| GPU | **RTX 4090** (or L4 / A10) | the workload is many small 512px tiles, not one big model |
-| avoid | A100 / H100 | 3-5x the price, no benefit here |
+| GPU | **RTX PRO 4500** ($0.72/hr, High availability) | 32 GB, 8 vCPU; the workload is many small 512px tiles, not one big model |
+| Template | **Runpod Pytorch 2.8.0** (`cu1281-torch280`) | **required** — see below |
+| avoid | A100 / H100 / B200 | 3-9x the price, no benefit for a 19 MB model |
 | vCPU | 8+ | 4K H.265 decode, not inference, is the likely bottleneck |
-| RAM | 32 GB | measured peak is 981 MB, so this is roomy |
+| RAM | 30 GB+ | measured peak is 981 MB, so this is roomy |
 | Disk | 30 GB | torch ~2.5 GB + sample 486 MB + headroom |
 | Tier | **Secure Cloud** | community/spot can be reclaimed at 15s notice |
-| Template | `runpod/pytorch` (CUDA 12.x) | torch already installed, saves the slowest step |
+
+### The template must match the card
+
+The RTX PRO 4500 is **Blackwell, compute capability sm_120**. The older
+templates (PyTorch 2.1 / 2.2 / 2.4, CUDA 11.8-12.4) were built for sm_90 and
+below. Pair one of those with this card and `torch.cuda.is_available()` still
+returns `True` and still reports the right device name — then the first real
+kernel throws `no kernel image is available for execution on the device`, or it
+silently falls back to CPU at roughly 1/20th the speed.
+
+So: **Runpod Pytorch 2.8.0** (CUDA 12.8.1), which is the CUDA generation that
+added Blackwell. Step 2 below proves it rather than trusting it.
+
+Pre-Blackwell alternatives, if you would rather not depend on this at all:
+**A40** ($0.44/hr, 9 vCPU, Ampere sm_86) or **L40S** ($0.99/hr, 16 vCPU, Ada
+sm_89). Both work with *any* template on that page.
 
 Expose **HTTP port 8000**. RunPod gives the pod a public
 `https://<pod-id>-8000.proxy.runpod.net` URL.
