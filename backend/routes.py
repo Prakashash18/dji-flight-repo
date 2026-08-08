@@ -4,6 +4,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 import uuid
+import multiprocessing
 import datetime
 import json
 import re
@@ -35,8 +36,12 @@ supabase_client = None
 gcs_client = None
 
 if not USE_CLOUD_STORAGE:
-    print("💾 [FastAPI] Local storage mode: crops, frames and the last mission "
-          "are kept on this machine. No Supabase or GCS.")
+    # Only the server says this. Inference workers are spawned, so they re-import
+    # this module and would each repeat the banner mid-run — eight copies of it
+    # scrolling past while a patrol is being processed.
+    if multiprocessing.current_process().name == "MainProcess":
+        print("💾 [FastAPI] Local storage mode: crops, frames and the last mission "
+              "are kept on this machine. No Supabase or GCS.")
 else:
     if settings.SUPABASE_URL and settings.SUPABASE_KEY:
         try:
@@ -540,11 +545,25 @@ async def get_crop(object_path: str):
     headers = {"Cache-Control": "public, max-age=604800"}
     media = "image/png" if object_path.lower().endswith(".png") else "image/jpeg"
 
-    if os.path.exists(cached):
-        return FileResponse(cached, media_type=media, headers=headers)
+    # Read it here rather than handing the path to FileResponse, which opens the
+    # file later in the response cycle. Starting a new patrol deletes the old
+    # run's crops, and phones still showing the previous mission keep asking for
+    # them — so `exists()` could pass and the open could then fail, surfacing as
+    # a 500 and a full traceback per request.
+    try:
+        with open(cached, "rb") as f:
+            return Response(content=f.read(), media_type=media, headers=headers)
+    except FileNotFoundError:
+        pass
+    except OSError as e:
+        print(f"⚠️ Could not read cached crop {object_path}: {e}")
 
-    if not settings.SUPABASE_URL:
-        raise HTTPException(status_code=404, detail="No storage configured")
+    if not settings.SUPABASE_URL or supabase_client is None:
+        # Local-only mode: this crop belonged to a patrol that has been cleared.
+        # 404 with a short TTL so the phone stops asking; 500 made it retry.
+        return Response(content=b'{"detail":"crop no longer available"}',
+                        status_code=404, media_type="application/json",
+                        headers={"Cache-Control": "public, max-age=60"})
 
     import requests
     upstream = (f"{settings.SUPABASE_URL.rstrip('/')}/storage/v1/object/public/"

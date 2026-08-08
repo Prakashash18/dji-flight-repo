@@ -142,7 +142,7 @@ def write_annotated_frame(task_id: str, frame, detections: list, time_ms: float)
 SUPABASE_IMAGE_BUCKET = "litter-images"
 
 
-def plan_crop_destination(bucket_name: str):
+def plan_crop_destination(bucket_name: str, task_id: Optional[str] = None):
     """
     Where a detection crop lives, as (backend, object_path, url).
 
@@ -151,8 +151,14 @@ def plan_crop_destination(bucket_name: str):
     trip to another continent — which failed often enough under a run's write
     load that most pins showed no image. The bytes are produced here; they stay
     here, and `/api/crops` serves them off disk.
+
+    The mission id is part of the path so a patrol's crops can be cleared as a
+    unit. They used to share one flat pool, which meant a new run could only
+    clear everything — including the crops phones were still displaying from the
+    patrol that had just finished.
     """
-    object_path = f"detections/{uuid.uuid4()}_detection.jpg"
+    folder = task_id or "unsorted"
+    object_path = f"detections/{folder}/{uuid.uuid4()}_detection.jpg"
     return "local", object_path, f"/api/crops/{object_path}"
 
 
@@ -331,12 +337,14 @@ def start_processing_task(video_path: str, telemetry_path: str, model_path: str,
     # One patrol at a time. Clear the previous run's stored mission, annotated
     # frames and crops before this one starts, so the audience never sees two
     # flights mixed together and the caches do not grow for the life of the box.
+    # Retire patrols older than the last one, not the last one itself: phones
+    # still showing the finished flight keep asking for its crops and frames.
     import local_store
-    before_mb = local_store.disk_usage_mb()
     local_store.purge_previous(keep_task_id=task_id)
-    PROCESSING_TASKS.clear()
-    if before_mb:
-        print(f"🧹 Cleared the previous patrol ({before_mb} MB).")
+    # Keep the previous task in memory for the same reason — /api/live serves it
+    # until the new run has produced something of its own.
+    for old_id in [k for k in list(PROCESSING_TASKS)[:-1] if k != task_id]:
+        PROCESSING_TASKS.pop(old_id, None)
 
     device, resolved_workers, batch_size = plan_execution(workers)
     PROCESSING_TASKS[task_id] = {
@@ -475,7 +483,7 @@ def handle_frame_detections(task_id: str, mission_id: Optional[str], detections:
 
             crop_backend = None
             if should_upload_new_crop:
-                crop_backend, unique_filename, image_url = plan_crop_destination(bucket_name)
+                crop_backend, unique_filename, image_url = plan_crop_destination(bucket_name, task_id)
                 matching_cluster["max_confidence"] = conf
                 matching_cluster["image_url"] = image_url
                 upload_jpeg_bytes = jpeg_bytes
@@ -498,10 +506,11 @@ def handle_frame_detections(task_id: str, mission_id: Optional[str], detections:
 
             update_msg = (f"🔄 Refined cluster for {class_name} (now {n} sightings). "
                           f"Approx GPS: ({matching_cluster['avg_latitude']:.6f}, {matching_cluster['avg_longitude']:.6f})")
-            update_msg += " [Database Updated -> Real-time Pushed to Mobile Client]" if supabase_client else " [Mock Fallback]"
+            update_msg += (" [Database Updated -> Real-time Pushed to Mobile Client]"
+                           if supabase_client else " [Stored on station -> Live on phones]")
             add_log(task_id, update_msg)
         else:
-            crop_backend, unique_filename, image_url = plan_crop_destination(bucket_name)
+            crop_backend, unique_filename, image_url = plan_crop_destination(bucket_name, task_id)
 
             pin_id = str(uuid.uuid4())
             pin_data = {
@@ -541,7 +550,10 @@ def handle_frame_detections(task_id: str, mission_id: Optional[str], detections:
             tile_evidence = det.get("merged_from", 1)
             det_msg = (f"🚨 Detected {class_name} ({conf:.2%}) at {current_time_ms/1000:.1f}s "
                        f"across {tile_evidence} tile hit(s). GPS: ({target_lat:.6f}, {target_lon:.6f})")
-            det_msg += " [Saved to Database -> Real-time Pushed to Mobile Client]" if supabase_client else " [Mock Fallback]"
+            # Not a mock: the pin is in memory, on disk and already being served
+            # by /api/live. "Mock Fallback" made real work look fake in the log.
+            det_msg += (" [Saved to Database -> Real-time Pushed to Mobile Client]"
+                        if supabase_client else " [Stored on station -> Live on phones]")
             add_log(task_id, det_msg)
 
         # Normalised box (0-1) alongside the GPS fix, so a player can draw the

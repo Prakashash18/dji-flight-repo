@@ -62,41 +62,57 @@ def load_mission() -> Optional[Dict[str, Any]]:
         return None
 
 
+def _prune_generations(parent: str, keep_task_id: Optional[str], keep: int = 2) -> int:
+    """
+    Keep the newest `keep` mission folders under `parent`, plus the live one.
+
+    Deleting the previous patrol the moment a new one starts is too eager: a
+    phone still showing the finished flight goes on requesting its crops and
+    frames for as long as someone is looking at it, and every one of those became
+    a miss. Keeping one generation back means the handover is invisible — the old
+    run stays readable until it has been replaced twice over.
+    """
+    if not os.path.isdir(parent):
+        return 0
+    entries = []
+    for name in os.listdir(parent):
+        path = os.path.join(parent, name)
+        if not os.path.isdir(path) or name == keep_task_id:
+            continue
+        try:
+            entries.append((os.path.getmtime(path), path))
+        except OSError:
+            continue
+    entries.sort(reverse=True)          # newest first
+    removed = 0
+    for _mtime, path in entries[keep - 1:]:
+        shutil.rmtree(path, ignore_errors=True)
+        removed += 1
+    return removed
+
+
 def purge_previous(keep_task_id: Optional[str] = None) -> None:
     """
-    Drop everything belonging to earlier patrols.
+    Retire patrols older than the one just finished.
 
-    Called when a new flight starts, so the audience never sees a mix of two
-    missions and the caches do not grow for the life of the machine. Frames and
-    crops for `keep_task_id` are left alone — that is the run just starting.
+    The stored mission file is left alone — it is overwritten by the new run and
+    is what a restart falls back to, so removing it here would blank the phone
+    view for the whole warm-up.
     """
     from routes import CROP_CACHE_DIR
+    from processing_task import FRAMES_DIR
 
+    n = 0
     try:
-        if os.path.exists(STORE_FILE):
-            os.remove(STORE_FILE)
-    except OSError as e:
-        print(f"⚠️ Could not clear the stored mission: {e}")
-
-    # Annotated frames are per-task directories, so keep only the live one.
-    try:
-        from processing_task import FRAMES_DIR
-        if os.path.isdir(FRAMES_DIR):
-            for name in os.listdir(FRAMES_DIR):
-                if name == keep_task_id:
-                    continue
-                shutil.rmtree(os.path.join(FRAMES_DIR, name), ignore_errors=True)
+        n += _prune_generations(FRAMES_DIR, keep_task_id)
     except Exception as e:
-        print(f"⚠️ Could not clear old frames: {e}")
-
-    # Crops are a flat pool with uuid names and no task in the path, so the whole
-    # pool goes. The new run repopulates it as it detects.
+        print(f"⚠️ Could not retire old frames: {e}")
     try:
-        crops = os.path.join(CROP_CACHE_DIR, "detections")
-        if os.path.isdir(crops):
-            shutil.rmtree(crops, ignore_errors=True)
+        n += _prune_generations(os.path.join(CROP_CACHE_DIR, "detections"), keep_task_id)
     except Exception as e:
-        print(f"⚠️ Could not clear old crops: {e}")
+        print(f"⚠️ Could not retire old crops: {e}")
+    if n:
+        print(f"🧹 Retired {n} folder(s) from patrols older than the last one.")
 
 
 def disk_usage_mb() -> float:
