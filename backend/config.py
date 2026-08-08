@@ -61,6 +61,13 @@ class Settings:
     # GPU and every watching phone with it.
     STATION_KEY: str = os.getenv("STATION_KEY", "")
 
+    # Footage copied onto the station out-of-band (scp, a mounted volume) and
+    # processed without an HTTP upload. Both Cloudflare and RunPod's own proxy
+    # cap request bodies around 100 MB, so a 1-3 GB DJI flight cannot reach the
+    # station through a browser at all — this is the only path that works for
+    # real footage.
+    MEDIA_DIR: str = os.getenv("MEDIA_DIR", os.path.join(os.path.dirname(__file__), "media"))
+
     HOST: str = os.getenv("HOST", "0.0.0.0")
     PORT: int = int(os.getenv("PORT", "8000"))
 

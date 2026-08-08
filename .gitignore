@@ -64,3 +64,6 @@ scratch/
 
 # Local mission store and caches (regenerated per run)
 backend/mission_store/
+
+# Footage copied onto the station for the no-upload path
+backend/media/

@@ -2963,7 +2963,10 @@
         const CF_UPLOAD_LIMIT_MB = 100;
 
         function servedThroughCloudflare() {
-            return /coastalpatrol\.app$/i.test(location.hostname);
+            // Both Cloudflare and RunPod's own proxy cap request bodies at
+            // roughly 100 MB — the RunPod proxy sits behind Cloudflare too, so
+            // there is no browser upload path for a multi-gigabyte flight.
+            return true;
         }
 
         function videoTooLargeForThisUrl(file) {
@@ -2984,10 +2987,15 @@
                     `${mb.toFixed(0)} MB is over the ~${CF_UPLOAD_LIMIT_MB} MB limit on ` +
                     `<code>${location.hostname}</code>. It would be rejected before reaching the ` +
                     `station, so the video would never be processed.<br><br>` +
-                    `<strong>Use one of these instead:</strong><br>` +
-                    `• Open this dashboard on the station's direct address ` +
-                    `(RunPod &rarr; Connect &rarr; HTTP 8000) — no limit applies there.<br>` +
-                    `• Or press <em>Run this sample</em> to use the footage already on the station.`;
+                    `Every address into this station is behind a proxy with the same ` +
+                    `limit, so there is no browser upload that will work for a file ` +
+                    `this size.<br><br>` +
+                    `<strong>Copy it onto the station instead:</strong><br>` +
+                    `<code>scp -P &lt;port&gt; "your.MP4" your.SRT root@&lt;pod-ip&gt;:` +
+                    `/workspace/coastal-patrol/backend/media/</code><br>` +
+                    `It then appears under <em>Footage on the station</em> below and runs ` +
+                    `with no upload at all.<br><br>` +
+                    `• Or press <em>Run this sample</em> to use the bundled patrol.`;
             }
         }
 
@@ -3368,9 +3376,9 @@
                         reject(new Error('This station is view-only. Ask the operator for the key, '
                                        + 'then press Run again to enter it.'));
                     } else if (xhr.status === 413) {
-                        reject(new Error('The video is larger than this URL accepts. Cloudflare caps '
-                                       + 'uploads at about 100 MB. Open the station on the pod\'s '
-                                       + 'direct RunPod URL to upload large footage, or use '
+                        reject(new Error('The video is larger than any address into this station '
+                                       + 'accepts (~100 MB). Copy it to backend/media/ on the '
+                                       + 'station with scp and run it from there, or use '
                                        + '"Run this sample".'));
                     } else if (xhr.status === 409) {
                         reject(new Error('A patrol is already running on this station. '

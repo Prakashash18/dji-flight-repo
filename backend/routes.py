@@ -964,6 +964,54 @@ async def get_demo_data():
     }
 
 
+VIDEO_EXTS = (".mp4", ".mov", ".mkv", ".avi", ".m4v")
+TELEMETRY_EXTS = (".srt", ".csv", ".txt")
+
+
+def _media_listing():
+    """Footage sitting on the station, ready to process without an upload."""
+    d = settings.MEDIA_DIR
+    vids, tels = [], []
+    if os.path.isdir(d):
+        for name in sorted(os.listdir(d)):
+            path = os.path.join(d, name)
+            if not os.path.isfile(path):
+                continue
+            low = name.lower()
+            entry = {"name": name, "size_mb": round(os.path.getsize(path) / 1048576, 1)}
+            if low.endswith(VIDEO_EXTS):
+                vids.append(entry)
+            elif low.endswith(TELEMETRY_EXTS):
+                tels.append(entry)
+    return vids, tels
+
+
+def resolve_media_file(name: str, kind: str) -> str:
+    """
+    Turn a caller-supplied filename into a real path inside MEDIA_DIR.
+
+    Compared against the actual listing rather than trusted as a string, the
+    same way weights are resolved — so neither `../` nor a symlink can point the
+    station at a file outside the folder.
+    """
+    vids, tels = _media_listing()
+    allowed = {e["name"] for e in (vids if kind == "video" else tels)}
+    if name not in allowed:
+        raise HTTPException(status_code=400,
+                            detail=f"No such {kind} on the station: {os.path.basename(str(name))}")
+    path = os.path.realpath(os.path.join(settings.MEDIA_DIR, name))
+    if os.path.dirname(path) != os.path.realpath(settings.MEDIA_DIR):
+        raise HTTPException(status_code=400, detail="Path escapes the media directory.")
+    return path
+
+
+@router.get("/station/media")
+async def station_media():
+    """Footage already on the station, for the no-upload path."""
+    vids, tels = _media_listing()
+    return {"dir": settings.MEDIA_DIR, "videos": vids, "telemetry": tels}
+
+
 @router.get("/station/access")
 async def station_access(request: Request):
     """
@@ -1072,6 +1120,9 @@ async def process_flight_data(
     gcs_video_path: Optional[str] = Form(None),
     telemetry: Optional[UploadFile] = File(None),
     use_sample: bool = Form(False),
+    # Footage already on the station, chosen by name from MEDIA_DIR.
+    local_video: Optional[str] = Form(None),
+    local_telemetry: Optional[str] = Form(None),
     # Weights are chosen by name from the server's models directory. There is
     # deliberately no upload and no URL: a .pt is pickled Python, so letting a
     # request supply the bytes — or an address to fetch them from — is remote
@@ -1151,10 +1202,26 @@ async def process_flight_data(
         shutil.copyfile(sample_srt, telemetry_path)
         print(f"✅ [FastAPI] Sample run staged from {static_dir}")
 
-    elif not video and not video_url and not gcs_video_path:
-        raise HTTPException(status_code=400, detail="Either video file upload, video_url, or gcs_video_path is required.")
+    elif local_video:
+        # Already on the station: copy it into the temp dir like the sample does,
+        # because the worker deletes its inputs when it finishes and must not
+        # consume footage the operator put there deliberately.
+        import shutil
+        src_v = resolve_media_file(local_video, "video")
+        if not local_telemetry:
+            raise HTTPException(status_code=400,
+                                detail="A telemetry file on the station is required alongside the video.")
+        src_t = resolve_media_file(local_telemetry, "telemetry")
+        video_path = os.path.join(temp_dir, f"local_{uuid.uuid4()}{os.path.splitext(src_v)[1]}")
+        telemetry_path = os.path.join(temp_dir, f"local_{uuid.uuid4()}{os.path.splitext(src_t)[1]}")
+        shutil.copyfile(src_v, video_path)
+        shutil.copyfile(src_t, telemetry_path)
+        print(f"✅ [FastAPI] Using footage already on the station: {local_video} + {local_telemetry}")
 
-    if use_sample:
+    elif not video and not video_url and not gcs_video_path:
+        raise HTTPException(status_code=400, detail="Either an uploaded video, footage already on the station (local_video), or video_url is required.")
+
+    if use_sample or local_video:
         pass  # paths already staged above
     elif video:
         video_path = os.path.join(temp_dir, f"{uuid.uuid4()}_{safe_upload_name(video.filename)}")
@@ -1197,7 +1264,7 @@ async def process_flight_data(
                 os.remove(video_path)
             raise HTTPException(status_code=500, detail=f"Error downloading video from URL: {str(e)}")
         
-    if not use_sample:
+    if not use_sample and not local_video:
         if not telemetry or not telemetry.filename:
             if os.path.exists(video_path):
                 os.remove(video_path)
