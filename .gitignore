@@ -34,6 +34,10 @@ mobile/dist/
 .DS_Store
 Thumbs.db
 
+# Downloaded model weights cache and temporary upload staging
+backend/model_cache/
+backend/temp_uploads/
+
 # Large media files (videos, models etc. over 100MB)
 *.mp4
 *.mov
@@ -43,3 +47,17 @@ Thumbs.db
 *.zip
 *.tar.gz
 
+
+# Model weights (large, installed per-machine)
+backend/models/
+
+# Regenerated on demand — annotated frames, map tiles and detection crops are
+# all rebuilt from the source data, so they are machine state, not source.
+backend/frame_cache/
+backend/tile_cache/
+backend/crop_cache/
+
+# Runtime and debugging leftovers
+deploy/logs/
+backend/live_tail.json
+scratch/

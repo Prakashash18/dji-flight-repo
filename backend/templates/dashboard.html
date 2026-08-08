@@ -5,9 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Coastal Patrol - Processing Station Dashboard</title>
     <!-- Google Fonts -->
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <link href="/static/vendor/fonts.css" rel="stylesheet">
     <!-- Leaflet CSS -->
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+    <link rel="stylesheet" href="/static/vendor/leaflet.css"/>
+    <!-- Marker clustering: a litter-strewn beach yields dozens of pins within a
+         few metres, which as photo markers becomes an unreadable stack. -->
+    <link rel="stylesheet" href="/static/vendor/MarkerCluster.css"/>
     <style>
         :root {
             --bg-color: #06080c;
@@ -256,6 +259,124 @@
         .step-header p {
             font-size: 14px;
             color: var(--text-secondary);
+        }
+
+        /* ---- Try-it-now sample card ----
+           Replaces a download/re-upload round trip with one button, and shows the
+           footage so the offer is concrete rather than an abstraction. */
+        .try-sample-card {
+            display: flex;
+            align-items: stretch;
+            gap: 22px;
+            background: rgba(15, 23, 42, 0.45);
+            border: 1px solid rgba(0, 240, 255, 0.2);
+            border-radius: 14px;
+            padding: 18px;
+            margin: 0 auto 22px auto;
+            max-width: 900px;
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.35), inset 0 1px 1px rgba(255, 255, 255, 0.04);
+            backdrop-filter: blur(10px);
+            animation: fadeIn 0.5s ease-out;
+            position: relative;
+            overflow: hidden;
+        }
+        .try-sample-card::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0;
+            width: 4px; height: 100%;
+            background: linear-gradient(180deg, var(--primary-glow), var(--accent-glow));
+        }
+
+        .try-sample-preview {
+            position: relative;
+            width: 232px;
+            flex-shrink: 0;
+            border-radius: 10px;
+            overflow: hidden;
+            background: #06080c;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        .try-sample-preview video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+        .try-sample-live {
+            position: absolute;
+            left: 8px; bottom: 8px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 9px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            padding: 3px 7px;
+            border-radius: 4px;
+            background: rgba(6, 8, 12, 0.8);
+            border: 1px solid rgba(0, 240, 255, 0.35);
+            color: var(--primary-glow);
+        }
+
+        .try-sample-body {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 8px;
+            justify-content: center;
+            min-width: 0;
+        }
+        .try-sample-body h3 {
+            font-family: 'Outfit', sans-serif;
+            font-size: 18px;
+            font-weight: 800;
+            color: #fff;
+        }
+        .try-sample-body p {
+            font-size: 13px;
+            line-height: 1.5;
+            color: var(--text-secondary);
+            max-width: 52ch;
+        }
+        .try-sample-actions {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            flex-wrap: wrap;
+            margin-top: 4px;
+        }
+        .try-sample-links {
+            font-size: 11px;
+            color: #6b7280;
+        }
+        .try-sample-links a {
+            color: var(--text-secondary);
+            text-decoration: underline;
+            text-underline-offset: 2px;
+        }
+        .try-sample-links a:hover { color: var(--primary-glow); }
+
+        .upload-divider {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            max-width: 900px;
+            margin: 0 auto 20px auto;
+            color: #6b7280;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        .upload-divider::before,
+        .upload-divider::after {
+            content: '';
+            flex: 1 1 auto;
+            height: 1px;
+            background: rgba(255, 255, 255, 0.08);
+        }
+
+        @media (max-width: 760px) {
+            .try-sample-card { flex-direction: column; }
+            .try-sample-preview { width: 100%; height: 150px; }
         }
 
         /* Sample Download Banner Styles */
@@ -659,27 +780,7 @@
             box-shadow: 0 0 8px rgba(0, 240, 255, 0.15);
         }
 
-        .custom-model-file-container {
-            display: none;
-            margin-top: 10px;
-            animation: fadeIn 0.3s ease;
-        }
 
-        .custom-model-upload-card {
-            background: rgba(255, 255, 255, 0.02);
-            border: 1px dashed rgba(255, 255, 255, 0.15);
-            border-radius: 8px;
-            padding: 14px;
-            text-align: center;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            font-size: 13px;
-            color: var(--text-secondary);
-        }
-        .custom-model-upload-card:hover {
-            border-color: var(--primary-glow);
-            background: rgba(0, 240, 255, 0.02);
-        }
 
         /* Step 3: Run & Live Monitor Dashboard */
         .step-3-layout {
@@ -695,6 +796,10 @@
 
         .progress-overlay-card {
             padding: 14px 20px;
+            /* .glass-panel is overflow:hidden, and as a flex child this card was
+               shrinking on short viewports until the progress bar was clipped
+               out of existence. Hold its natural height. */
+            flex-shrink: 0;
         }
 
         .progress-info-row {
@@ -763,7 +868,10 @@
             font-size: 14px;
             font-weight: 700;
             color: var(--primary-glow);
-            min-width: 180px;
+            /* min-width forced the label past the card edge, clipping the elapsed
+               time. Sizing to content with a floor keeps it inside. */
+            flex: 0 0 auto;
+            white-space: nowrap;
             text-align: right;
         }
 
@@ -790,6 +898,55 @@
             background-color: #0c1b2f;
         }
 
+        /* Camera footprint: what the drone is actually covering right now. */
+        .camera-footprint {
+            filter: drop-shadow(0 0 6px rgba(0, 240, 255, 0.7));
+        }
+
+        /* Grouped litter pins */
+        .litter-cluster-icon { background: transparent; border: none; }
+        .litter-cluster {
+            width: 38px;
+            height: 38px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'Outfit', sans-serif;
+            font-size: 14px;
+            font-weight: 800;
+            color: #06080c;
+            background: radial-gradient(circle at 35% 30%, #6cffe6 0%, var(--success-color) 70%);
+            border: 2px solid rgba(6, 8, 12, 0.85);
+            box-shadow: 0 0 14px rgba(0, 245, 212, 0.55);
+        }
+        /* Leaflet animates these on zoom; keep the transition off the transform. */
+        .marker-cluster { background: transparent; }
+
+        /* Leaflet's own controls ship light-themed; restyle for the dark shell. */
+        .leaflet-control-layers,
+        .leaflet-bar a {
+            background: rgba(6, 8, 12, 0.9) !important;
+            color: var(--text-color) !important;
+            border-color: rgba(255, 255, 255, 0.12) !important;
+            backdrop-filter: blur(8px);
+        }
+        .leaflet-bar a:hover { background: rgba(0, 240, 255, 0.15) !important; }
+        .leaflet-control-layers-toggle {
+            filter: invert(1) hue-rotate(180deg);
+        }
+        .leaflet-control-layers label {
+            font-family: 'Inter', sans-serif;
+            font-size: 12px;
+            color: var(--text-color);
+        }
+        .leaflet-control-attribution {
+            background: rgba(6, 8, 12, 0.7) !important;
+            color: var(--text-secondary) !important;
+            font-size: 9px !important;
+        }
+        .leaflet-control-attribution a { color: var(--text-secondary) !important; }
+
         .right-streams {
             display: flex;
             flex-direction: column;
@@ -799,6 +956,8 @@
         }
 
         /* Terminal Console */
+        /* Collapsed by default, so it costs one row instead of half the column;
+           it only claims flex space once opened. */
         .terminal-container {
             display: flex;
             flex-direction: column;
@@ -806,21 +965,51 @@
             border-radius: 12px;
             border: 1px solid rgba(255, 255, 255, 0.03);
             overflow: hidden;
-            flex: 1;
+            flex: 0 0 auto;
             min-height: 0;
+        }
+        .terminal-container[open] {
+            flex: 1 1 0;
+            min-height: 120px;
         }
 
         .terminal-header {
-            padding: 10px 16px;
+            padding: 10px 14px;
             background: rgba(255, 255, 255, 0.02);
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
             font-family: 'JetBrains Mono', monospace;
             font-size: 10px;
             color: var(--text-secondary);
             display: flex;
-            justify-content: space-between;
             align-items: center;
+            gap: 8px;
+            cursor: pointer;
+            list-style: none;
+            user-select: none;
         }
+        .terminal-header::-webkit-details-marker { display: none; }
+        .terminal-header:hover { color: var(--text-color); }
+        .terminal-container[open] .terminal-header {
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        .terminal-container[open] .drawer-caret { transform: rotate(90deg); }
+        .terminal-title {
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            flex-shrink: 0;
+        }
+        /* The newest line rides in the header, so collapsing hides the history
+           without hiding what is happening right now. */
+        .terminal-latest {
+            flex: 1 1 auto;
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            color: #52e3c2;
+            opacity: 0.75;
+            text-align: right;
+        }
+        .terminal-container[open] .terminal-latest { display: none; }
 
         .terminal-pulse {
             width: 6px;
@@ -889,9 +1078,12 @@
             padding-right: 4px;
         }
 
+        /* Litter is a few pixels wide in the source frame, so the crop needs real
+           estate to be judgeable. Two per row at this column width beats four
+           postage stamps. */
         .detections-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+            grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
             gap: 12px;
         }
 
@@ -913,10 +1105,13 @@
 
         .detection-thumb {
             width: 100%;
-            height: 80px;
+            height: 132px;
             object-fit: cover;
             background-color: rgba(255,255,255,0.02);
             border-bottom: 1px solid rgba(255,255,255,0.05);
+            cursor: zoom-in;
+            /* Crops are tiny source regions; smoothing them to mush helps nobody. */
+            image-rendering: -webkit-optimize-contrast;
         }
 
         .detection-info {
@@ -976,6 +1171,868 @@
             background: none !important;
             border: none !important;
         }
+
+        /* ==========================================================
+           SAHI configuration controls (Step 2)
+           ========================================================== */
+        /* ---- Step 2 scaffolding: titled sections, presets, advanced drawer ----
+           The wizard previously showed ten controls at one visual level, so a
+           required choice (which weights) looked no more important than a knob
+           nobody touches (tile overlap). These styles establish the hierarchy. */
+        .config-section {
+            padding-bottom: 22px;
+            margin-bottom: 22px;
+            border-bottom: 1px dashed rgba(255, 255, 255, 0.08);
+        }
+        .config-section.last {
+            padding-bottom: 0;
+            margin-bottom: 0;
+            border-bottom: none;
+        }
+        .config-section-head {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+        .config-section-icon {
+            font-size: 18px;
+            line-height: 1.2;
+            filter: saturate(1.2);
+        }
+        .config-section-head h3 {
+            font-family: 'Outfit', sans-serif;
+            font-size: 15px;
+            font-weight: 700;
+            color: #fff;
+            letter-spacing: 0.2px;
+        }
+        .config-section-head p {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-top: 2px;
+            line-height: 1.4;
+        }
+
+        /* Quality presets replace four knobs with one decision. */
+        .preset-row {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+        }
+        .preset-btn {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 3px;
+            padding: 12px 14px;
+            border-radius: 10px;
+            cursor: pointer;
+            text-align: left;
+            font-family: 'Inter', sans-serif;
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(141, 169, 196, 0.18);
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .preset-btn:hover {
+            border-color: rgba(0, 240, 255, 0.4);
+            background: rgba(0, 240, 255, 0.05);
+        }
+        .preset-btn.active {
+            border-color: var(--primary-glow);
+            background: rgba(0, 240, 255, 0.08);
+            box-shadow: 0 0 14px rgba(0, 240, 255, 0.12), inset 0 1px 1px rgba(255, 255, 255, 0.05);
+        }
+        .preset-name {
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--text-secondary);
+        }
+        .preset-btn.active .preset-name { color: var(--primary-glow); }
+        .preset-sub {
+            font-size: 10px;
+            color: #6b7280;
+            font-weight: 500;
+        }
+        .preset-btn.active .preset-sub { color: var(--text-secondary); }
+
+        /* Collapsed drawer keeps every knob reachable without shouting. */
+        .advanced-drawer {
+            margin-top: 16px;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.015);
+        }
+        .advanced-drawer > summary {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 11px 14px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            list-style: none;
+            user-select: none;
+        }
+        .advanced-drawer > summary::-webkit-details-marker { display: none; }
+        .advanced-drawer > summary:hover { color: var(--text-color); }
+        .drawer-caret {
+            font-size: 10px;
+            transition: transform 0.2s ease;
+            display: inline-block;
+        }
+        .advanced-drawer[open] .drawer-caret { transform: rotate(90deg); }
+        /* Current settings stay legible while collapsed — hidden, not unknowable. */
+        .drawer-summary {
+            margin-left: auto;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10px;
+            color: #6b7280;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .drawer-body {
+            padding: 4px 14px 16px 14px;
+            border-top: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        .drawer-body h4 {
+            font-size: 12px;
+            font-weight: 700;
+            color: #fff;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        /* Hover-for-detail, so explanations stop competing with the controls. */
+        .info-dot {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background: rgba(141, 169, 196, 0.15);
+            color: var(--text-secondary);
+            font-size: 9px;
+            font-weight: 700;
+            cursor: help;
+            margin-left: 5px;
+            vertical-align: middle;
+        }
+        .info-dot:hover {
+            background: rgba(0, 240, 255, 0.2);
+            color: var(--primary-glow);
+        }
+
+        .mission-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        @media (max-width: 640px) {
+            .preset-row, .mission-grid { grid-template-columns: 1fr; }
+            .drawer-summary { display: none; }
+        }
+
+        .sahi-config-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+
+        .sahi-explainer {
+            font-size: 11.5px;
+            line-height: 1.55;
+            color: var(--text-secondary);
+        }
+        .sahi-explainer strong { color: var(--primary-glow); font-weight: 600; }
+
+        .field-hint {
+            display: block;
+            margin-top: 6px;
+            font-size: 10.5px;
+            line-height: 1.5;
+            color: var(--text-secondary);
+            opacity: 0.8;
+        }
+
+        /* Toggle switch */
+        .toggle-switch { position: relative; display: inline-block; width: 42px; height: 22px; flex-shrink: 0; }
+        .toggle-switch input { opacity: 0; width: 0; height: 0; }
+        .toggle-slider {
+            position: absolute;
+            cursor: pointer;
+            inset: 0;
+            background: rgba(255, 255, 255, 0.12);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 22px;
+            transition: all 0.25s ease;
+        }
+        .toggle-slider::before {
+            content: "";
+            position: absolute;
+            height: 16px;
+            width: 16px;
+            left: 2px;
+            bottom: 2px;
+            background: #9ca3af;
+            border-radius: 50%;
+            transition: all 0.25s ease;
+        }
+        .toggle-switch input:checked + .toggle-slider {
+            background: rgba(0, 240, 255, 0.18);
+            border-color: var(--primary-glow);
+        }
+        .toggle-switch input:checked + .toggle-slider::before {
+            transform: translateX(20px);
+            background: var(--primary-glow);
+            box-shadow: 0 0 8px var(--primary-glow);
+        }
+
+        #sahi-options { transition: opacity 0.25s ease; }
+        #sahi-options.disabled { opacity: 0.35; pointer-events: none; }
+
+        .sahi-estimate {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 14px;
+            padding: 10px 12px;
+            border-radius: 8px;
+            background: rgba(0, 240, 255, 0.05);
+            border: 1px solid rgba(0, 240, 255, 0.12);
+        }
+        .sahi-estimate-label {
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-secondary);
+        }
+        .sahi-estimate-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            font-weight: 700;
+            color: var(--primary-glow);
+        }
+
+        /* ==========================================================
+           Animated detection pipeline (Step 3)
+           ========================================================== */
+        .pipeline-card { padding: 12px 20px 12px; flex-shrink: 0; }
+
+        .pipeline-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 20px;
+            margin-bottom: 10px;
+            flex-wrap: wrap;
+        }
+        .pipeline-head h2 {
+            font-family: 'Outfit', sans-serif;
+            font-size: 14px;
+            font-weight: 700;
+            letter-spacing: 0.4px;
+        }
+
+        /* Five equal-weight numbers meant none of them led. One hero figure
+           carries the answer; the rest moved into the Run details drawer. */
+        .alt-figure {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            line-height: 1;
+            margin-left: auto;
+            padding-left: 20px;
+            flex-shrink: 0;
+            border-left: 1px solid rgba(255, 255, 255, 0.06);
+        }
+        .alt-value {
+            font-family: 'Outfit', sans-serif;
+            font-size: 30px;
+            font-weight: 800;
+            color: var(--primary-glow);
+            line-height: 1;
+            font-variant-numeric: proportional-nums;
+        }
+        .alt-label {
+            font-size: 10px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            margin-top: 5px;
+            white-space: nowrap;
+        }
+
+        .hero-figure {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            line-height: 1;
+            padding-left: 20px;
+            flex-shrink: 0;
+            border-left: 1px solid rgba(255, 255, 255, 0.06);
+        }
+        .hero-value {
+            font-family: 'Outfit', sans-serif;
+            font-size: 44px;
+            font-weight: 800;
+            color: var(--success-color);
+            line-height: 1;
+            /* Proportional figures: tabular-nums looks loose at display sizes. */
+            font-variant-numeric: proportional-nums;
+        }
+        .hero-label {
+            font-size: 10px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            margin-top: 5px;
+            white-space: nowrap;
+        }
+
+        /* Supporting numbers, on demand rather than on screen. */
+        .run-details { margin-top: 10px; }
+        .run-details > summary {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            cursor: pointer;
+            font-size: 10px;
+            font-weight: 600;
+            color: #6b7280;
+            list-style: none;
+            user-select: none;
+            width: fit-content;
+        }
+        .run-details > summary::-webkit-details-marker { display: none; }
+        .run-details > summary:hover { color: var(--text-secondary); }
+        .run-details[open] .drawer-caret { transform: rotate(90deg); }
+        .run-details-body {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px 26px;
+            padding: 10px 2px 2px;
+        }
+        .fstat { display: flex; flex-direction: column; align-items: flex-start; }
+        .fstat-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            font-weight: 700;
+            color: var(--text-color);
+            line-height: 1.2;
+        }
+        .fstat-label {
+            font-size: 9px;
+            color: #6b7280;
+            white-space: nowrap;
+        }
+
+        @media (max-width: 900px) {
+            .hero-figure { display: none; }
+        }
+
+        /* Close-up scan animation. Sits in the spotlight's visual slot and only
+           while frames are actually being sliced, so it reads as this step
+           happening rather than as a permanent widget. */
+        .tile-viz {
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 5px;
+            border-radius: 8px;
+            background: rgba(0, 0, 0, 0.35);
+            border: 1px solid rgba(0, 240, 255, 0.18);
+        }
+        /* Badge naming the live slicing backend next to the pipeline title. */
+        .backend-badge {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 9px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+            padding: 3px 8px;
+            border-radius: 5px;
+            vertical-align: middle;
+            margin-left: 8px;
+            background: rgba(0, 240, 255, 0.08);
+            border: 1px solid rgba(0, 240, 255, 0.25);
+            color: var(--primary-glow);
+        }
+        /* The built-in slicer is a fallback, not the tuned path — flag it amber. */
+        .backend-badge.fallback {
+            background: rgba(255, 193, 7, 0.1);
+            border-color: rgba(255, 193, 7, 0.35);
+            color: #FFC107;
+        }
+
+        .tile-grid {
+            display: grid;
+            gap: 1.5px;
+            width: 50px;
+            height: 50px;
+        }
+        .tile-cell {
+            background: rgba(0, 240, 255, 0.07);
+            border: 1px solid rgba(0, 240, 255, 0.12);
+            border-radius: 1.5px;
+            transition: all 0.2s ease;
+        }
+        /* The sweep highlights each tile in turn, reading as the model
+           working through the grid rather than a generic loading spinner. */
+        .tile-cell.scanning {
+            background: var(--primary-glow);
+            border-color: var(--primary-glow);
+            box-shadow: 0 0 8px var(--primary-glow);
+        }
+        .tile-cell.hit {
+            background: var(--danger-color);
+            border-color: var(--danger-color);
+            box-shadow: 0 0 8px var(--danger-color);
+            animation: tile-hit-pop 0.6s ease;
+        }
+        @keyframes tile-hit-pop {
+            0%   { transform: scale(1); }
+            40%  { transform: scale(1.6); }
+            100% { transform: scale(1); }
+        }
+
+        /* --- Stage flow nodes --- */
+        /* ==========================================================
+           Pipeline: a dot rail plus one spotlit stage
+           ----------------------------------------------------------
+           Nine stages shown at full width meant nine labels and seven
+           metrics competing at once — a wall of ticks that told no story.
+           The rail carries position; the spotlight below carries meaning,
+           and travels along as the run progresses.
+           ========================================================== */
+        .rail-row {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            margin-bottom: 14px;
+        }
+        .stage-rail {
+            display: flex;
+            align-items: center;
+            gap: 0;
+            flex: 1 1 auto;
+            padding: 0 2px;
+        }
+
+        .rail-node {
+            display: flex;
+            align-items: center;
+            flex: 1 1 0;
+            min-width: 0;
+        }
+        .rail-node:last-child { flex: 0 0 auto; }
+
+        .rail-dot {
+            width: 15px;
+            height: 15px;
+            border-radius: 50%;
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 8px;
+            font-weight: 700;
+            background: #0d1520;
+            border: 2px solid #2a3647;
+            color: transparent;
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            cursor: default;
+        }
+        .rail-node.completed .rail-dot {
+            border-color: var(--success-color);
+            background: var(--success-color);
+            color: #06080c;
+        }
+        /* The spotlight's current position, enlarged and breathing. */
+        .rail-node.active .rail-dot {
+            width: 22px;
+            height: 22px;
+            border-color: var(--primary-glow);
+            background: rgba(0, 240, 255, 0.12);
+            color: var(--primary-glow);
+            font-size: 10px;
+            animation: rail-pulse 1.6s ease-in-out infinite;
+        }
+        @keyframes rail-pulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(0, 240, 255, 0.5); }
+            50%      { box-shadow: 0 0 0 10px rgba(0, 240, 255, 0); }
+        }
+        .rail-node.failed .rail-dot {
+            border-color: var(--danger-color);
+            background: rgba(255, 93, 143, 0.2);
+            color: var(--danger-color);
+        }
+
+        .rail-line {
+            flex: 1 1 auto;
+            height: 2px;
+            margin: 0 6px;
+            min-width: 8px;
+            background: rgba(255, 255, 255, 0.08);
+            transition: background 0.4s ease;
+        }
+        .rail-node.completed .rail-line {
+            background: linear-gradient(90deg, var(--success-color), var(--primary-glow));
+        }
+        /* Data visibly in motion out of the working stage. */
+        .rail-node.active .rail-line {
+            background: linear-gradient(90deg,
+                var(--primary-glow) 0%, rgba(0, 240, 255, 0.1) 50%, rgba(255, 255, 255, 0.08) 100%);
+            background-size: 200% 100%;
+            animation: flow-line 1.4s linear infinite;
+        }
+        @keyframes flow-line {
+            0%   { background-position: 100% 0; }
+            100% { background-position: -100% 0; }
+        }
+
+        /* --- The spotlight: the only verbose thing on the card --- */
+        .stage-spotlight {
+            display: flex;
+            align-items: center;
+            gap: 18px;
+            min-width: 0;
+        }
+        /* Fixed slot so the text does not shift when the icon swaps for the
+           close-up grid partway through the run. */
+        .spotlight-visual {
+            width: 62px;
+            height: 62px;
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .spotlight-icon {
+            font-size: 34px;
+            line-height: 1;
+            animation: spotlight-breathe 2.4s ease-in-out infinite;
+        }
+        /* Motion signals "working"; a finished run should sit still. */
+        .pipeline-card.is-done .spotlight-icon,
+        .pipeline-card.is-failed .spotlight-icon { animation: none; }
+        @keyframes spotlight-breathe {
+            0%, 100% { transform: scale(1); }
+            50%      { transform: scale(1.12); }
+        }
+
+        .spotlight-text { min-width: 0; flex: 1 1 auto; }
+        .spotlight-title-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .spotlight-text h3 {
+            font-family: 'Outfit', sans-serif;
+            font-size: 16px;
+            font-weight: 700;
+            color: #fff;
+            letter-spacing: 0.2px;
+        }
+        /* The technical name survives here, as a credit rather than a headline. */
+        .spotlight-tag {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 9px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            padding: 2px 6px;
+            border-radius: 4px;
+            background: rgba(188, 19, 254, 0.12);
+            border: 1px solid rgba(188, 19, 254, 0.35);
+            color: #d98cff;
+            cursor: help;
+        }
+        .spotlight-step {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10px;
+            color: #6b7280;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+        .spotlight-text p {
+            font-size: 12.5px;
+            line-height: 1.55;
+            color: var(--text-secondary);
+            margin-top: 4px;
+            max-width: 74ch;
+        }
+        .spotlight-metric {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            color: var(--primary-glow);
+            margin-top: 6px;
+            min-height: 14px;
+        }
+        /* Each advance re-enters, so the move along the rail is felt. */
+        .stage-spotlight.advancing {
+            animation: spotlight-in 0.45s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        @keyframes spotlight-in {
+            from { opacity: 0; transform: translateX(14px); }
+            to   { opacity: 1; transform: translateX(0); }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .spotlight-icon, .stage-spotlight.advancing,
+            .rail-node.active .rail-dot, .rail-node.active .rail-line { animation: none; }
+        }
+
+        /* ==========================================================
+           Government agency export panel
+           ========================================================== */
+        /* The right column now holds three panels. Without explicit minimums the
+           fixed-height export card collapses the terminal and detections list to
+           nothing on short viewports, so each panel claims a floor and the column
+           scrolls once their combined minimums exceed the available height. */
+        .right-streams { overflow-y: auto; }
+        /* Collapsed the log costs only its header row, and the agency export has
+           moved to a completion dialog — so the detections list, the one thing
+           worth watching live, now owns the column. */
+        .right-streams > .terminal-container        { flex: 0 0 auto; min-height: 0; }
+        .right-streams > .terminal-container[open]  { flex: 0 0 40%; min-height: 128px; }
+        .right-streams > .detections-panel   { flex: 1 1 auto; min-height: 260px; }
+
+        /* ---- Completion dialog ---- */
+        .modal-backdrop {
+            position: fixed;
+            inset: 0;
+            z-index: 1000;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+            background: rgba(3, 5, 9, 0.72);
+            backdrop-filter: blur(6px);
+        }
+        .modal-backdrop.open { display: flex; animation: fadeIn 0.25s ease-out; }
+        .modal-card {
+            position: relative;
+            width: 100%;
+            max-width: 560px;
+            padding: 26px 28px 22px;
+            gap: 0;
+            border-color: rgba(0, 240, 255, 0.22);
+            box-shadow: 0 24px 70px rgba(0, 0, 0, 0.6);
+            animation: modal-rise 0.32s cubic-bezier(0.4, 0, 0.2, 1);
+            overflow: visible;
+        }
+        @keyframes modal-rise {
+            from { opacity: 0; transform: translateY(16px) scale(0.98); }
+            to   { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        .modal-close {
+            position: absolute;
+            top: 12px; right: 14px;
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            font-size: 22px;
+            line-height: 1;
+            cursor: pointer;
+            padding: 4px 8px;
+            border-radius: 6px;
+        }
+        .modal-close:hover { color: #fff; background: rgba(255, 255, 255, 0.06); }
+        .modal-head {
+            display: flex;
+            align-items: flex-start;
+            gap: 14px;
+            margin-bottom: 16px;
+        }
+        .modal-tick { font-size: 30px; line-height: 1; }
+        .modal-head h2 {
+            font-family: 'Outfit', sans-serif;
+            font-size: 21px;
+            font-weight: 800;
+            color: #fff;
+        }
+        .modal-head p {
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin-top: 3px;
+        }
+        .modal-head p b { color: var(--success-color); font-size: 15px; }
+        .modal-foot {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            margin-top: 18px;
+            padding-top: 16px;
+            border-top: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        /* Scan-to-try QR */
+        .share-demo-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+            margin-right: 12px;
+            padding: 7px 13px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-family: 'Inter', sans-serif;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(141, 169, 196, 0.2);
+            transition: all 0.25s ease;
+        }
+        .share-demo-btn:hover {
+            color: var(--primary-glow);
+            border-color: rgba(0, 240, 255, 0.4);
+            background: rgba(0, 240, 255, 0.08);
+        }
+        .qr-frame {
+            display: inline-block;
+            padding: 12px;
+            border-radius: 12px;
+            /* QR needs a light quiet zone to scan reliably on a dark screen. */
+            background: #fff;
+        }
+        .qr-frame img { display: block; width: 208px; height: 208px; }
+        .qr-url {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            color: var(--primary-glow);
+            margin-top: 12px;
+            word-break: break-all;
+        }
+
+        /* Full-size crop viewer */
+        .crop-modal-card {
+            position: relative;
+            max-width: min(88vw, 760px);
+            padding: 14px;
+            border-color: rgba(0, 240, 255, 0.22);
+            box-shadow: 0 24px 70px rgba(0, 0, 0, 0.6);
+            animation: modal-rise 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+            overflow: visible;
+        }
+        .crop-modal-card img {
+            max-width: 100%;
+            max-height: 66vh;
+            border-radius: 8px;
+            display: block;
+            background: #0d1520;
+            /* Upscaled tiny crops read better crisp than blurred. */
+            image-rendering: pixelated;
+        }
+        .crop-modal-info { padding: 12px 4px 2px; }
+        .crop-modal-info h3 {
+            font-family: 'Outfit', sans-serif;
+            font-size: 16px;
+            font-weight: 800;
+            color: #fff;
+            letter-spacing: 0.5px;
+        }
+        .crop-modal-info p {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            color: var(--text-secondary);
+            margin-top: 4px;
+        }
+
+        .export-ready-badge {
+            font-size: 9px;
+            font-weight: 700;
+            letter-spacing: 0.8px;
+            text-transform: uppercase;
+            padding: 3px 9px;
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.06);
+            color: var(--text-secondary);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            transition: all 0.3s ease;
+        }
+        .export-ready-badge.ready {
+            background: rgba(0, 245, 212, 0.1);
+            color: var(--success-color);
+            border-color: rgba(0, 245, 212, 0.3);
+            animation: export-ready-glow 2s ease-in-out infinite;
+        }
+        @keyframes export-ready-glow {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(0, 245, 212, 0.4); }
+            50%      { box-shadow: 0 0 0 6px rgba(0, 245, 212, 0); }
+        }
+
+        .export-body { padding: 12px 14px; }
+
+        .export-blurb {
+            font-size: 10.5px;
+            line-height: 1.5;
+            color: var(--text-secondary);
+            margin-bottom: 10px;
+        }
+        .export-blurb strong { color: var(--text-color); font-weight: 600; }
+
+        /* Single-line summary keeps the card short enough to sit below the
+           terminal and detections list without the column needing to scroll. */
+        .export-summary-line {
+            display: flex;
+            justify-content: space-between;
+            gap: 6px;
+            padding: 7px 10px;
+            margin-bottom: 10px;
+            border-radius: 7px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            font-size: 10px;
+            color: var(--text-secondary);
+            white-space: nowrap;
+        }
+        .export-summary-line b {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            color: var(--primary-glow);
+        }
+
+        .export-buttons { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+
+        .export-btn {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 1px;
+            padding: 8px 6px;
+            border-radius: 8px;
+            cursor: pointer;
+            background: rgba(0, 240, 255, 0.04);
+            border: 1px solid rgba(0, 240, 255, 0.15);
+            color: var(--text-color);
+            font-family: 'Inter', sans-serif;
+            transition: all 0.2s ease;
+        }
+        .export-btn:hover:not(:disabled) {
+            background: rgba(0, 240, 255, 0.12);
+            border-color: var(--primary-glow);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(0, 240, 255, 0.18);
+        }
+        .export-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+        .export-icon { font-size: 17px; }
+        .export-name { font-size: 11px; font-weight: 700; letter-spacing: 0.3px; }
+        .export-desc { font-size: 8.5px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px; }
+
+        .export-status {
+            margin-top: 10px;
+            font-size: 10.5px;
+            min-height: 14px;
+            color: var(--text-secondary);
+            text-align: center;
+        }
+        .export-status.success { color: var(--success-color); }
+        .export-status.error   { color: var(--danger-color); }
     </style>
 </head>
 <body>
@@ -996,7 +2053,7 @@
             <div class="step-line" id="step-line-1"></div>
             <div class="step-item pending" id="step-indicator-2">
                 <div class="step-circle">2</div>
-                <span class="step-label">Configure YOLO</span>
+                <span class="step-label">Configure Processing Station</span>
             </div>
             <div class="step-line" id="step-line-2"></div>
             <div class="step-item pending" id="step-indicator-3">
@@ -1005,6 +2062,9 @@
             </div>
         </div>
 
+        <button type="button" class="share-demo-btn" onclick="openShareModal()" title="Show a QR code for the phone demo">
+            <span>📱</span><span>Share demo</span>
+        </button>
         <div class="status-badge" id="service-status">Engine Connected</div>
     </header>
 
@@ -1015,30 +2075,39 @@
             <div id="step-1-section" class="step-section">
                 <div class="step-header">
                     <h2>Ingest Flight Data</h2>
-                    <p>Select or drag and drop the drone flight video and matching GPS telemetry log file to get started.</p>
+                    <p>Run the bundled patrol in one click, or bring your own drone video and telemetry log.</p>
                 </div>
 
-                <!-- Sample Data Download Banner -->
-                <div class="sample-download-prompt">
-                    <div class="sample-prompt-content">
-                        <span class="sample-badge">DEMO DATA</span>
-                        <span class="sample-prompt-text">Don't have drone files? Download sample logs to try out the volunteer application.</span>
+                <!-- Try-it-now card. The footage already lives on the server, so a
+                     demo needs no download and no re-upload — one click runs it. -->
+                <div class="try-sample-card">
+                    <div class="try-sample-preview">
+                        <!-- 21KB poster so the card is never an empty black box:
+                             the 500MB video only streams once it can autoplay. -->
+                        <video id="sample-preview" muted loop playsinline preload="metadata"
+                               poster="{{ sample_poster_url }}" src="{{ sample_preview_url }}"></video>
+                        <span class="try-sample-live">▶ PREVIEW</span>
                     </div>
-                    <div class="sample-prompt-actions">
-                        <a href="https://storage.googleapis.com/dji-flight-volunteer-app-assets/sample.mp4" download class="sample-btn video-btn">
-                            <svg class="btn-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
-                            </svg>
-                            Sample Video (.mp4)
-                        </a>
-                        <a href="/static/sample.srt" download class="sample-btn srt-btn">
-                            <svg class="btn-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
-                            </svg>
-                            Sample Telemetry (.srt)
-                        </a>
+                    <div class="try-sample-body">
+                        <span class="sample-badge">TRY IT NOW</span>
+                        <h3>Real patrol over {{ sample_location_label }}</h3>
+                        <p>45 seconds of 4K footage with matching GPS. Runs on this server —
+                           nothing to download, nothing to upload.</p>
+                        <div class="try-sample-actions">
+                            <button type="button" id="run-sample-btn" class="btn btn-primary btn-gradient-glow" onclick="runSample()">
+                                <span>Run this sample</span>
+                                <span>⚡</span>
+                            </button>
+                            <span class="try-sample-links">
+                                or download the
+                                <a href="{{ sample_video_url }}" download>video</a> ·
+                                <a href="{{ sample_telemetry_url }}" download>telemetry</a>
+                            </span>
+                        </div>
                     </div>
                 </div>
+
+                <div class="upload-divider"><span>or use your own flight</span></div>
 
                 <div class="cards-grid">
                     <!-- Flight Video Card -->
@@ -1104,62 +2173,181 @@
             <!-- STEP 2: Configure Settings -->
             <div id="step-2-section" class="step-section" style="display: none;">
                 <div class="step-header">
-                    <h2>Configure YOLO Engine</h2>
-                    <p>Select target detection weights and telemetry frame sampling frequency.</p>
+                    <h2>Configure Detection</h2>
+                    <p>Defaults are tuned for this footage — pick your weights and press start.</p>
                 </div>
                 <div class="settings-card-wrapper">
                     <div class="glass-panel settings-card">
-                        <div class="panel-header">
-                            <h2>⚙️ Engine Parameters</h2>
-                        </div>
                         <div class="panel-body">
-                            <!-- Model Selection -->
-                            <div class="form-group">
-                                <label>YOLOv8 Detection Weights</label>
-                                <select class="select-input" id="model-select" onchange="modelTypeChanged(this)">
-                                    <option value="solar_panel.pt" selected>Default Solar Panel Model (solar_panel.pt)</option>
-                                    <option value="yolov8n.pt">YOLOv8 Nano (Trash/General)</option>
-                                    <option value="custom">Swap out to custom model (.pt)</option>
-                                </select>
-                            </div>
 
-                            <!-- Custom Model File Upload (swappable weights) -->
-                            <div class="form-group custom-model-file-container" id="custom-model-container">
-                                <label>Custom YOLO Weights (.pt file)</label>
-                                <div class="custom-model-upload-card" onclick="document.getElementById('custom-model-file').click()">
-                                    <span id="custom-model-file-name">Click to select custom weights (.pt)</span>
+                            <!-- ============ 1. WHAT TO DETECT ============ -->
+                            <section class="config-section">
+                                <div class="config-section-head">
+                                    <span class="config-section-icon">🎯</span>
+                                    <div>
+                                        <h3>What to detect</h3>
+                                        <p>The trained weights the detector runs.</p>
+                                    </div>
                                 </div>
-                                <input type="file" id="custom-model-file" accept=".pt" style="display: none" onchange="customModelSelected(this)">
-                            </div>
 
-                            <!-- Frame stepping interval -->
-                            <div class="form-group">
-                                <label>Sampling Frequency (seconds)</label>
-                                <select class="select-input" id="interval-select">
-                                    <option value="500">Fast (Every 0.5s)</option>
-                                    <option value="1000" selected>Standard (Every 1.0s)</option>
-                                    <option value="2000">Eco-mode (Every 2.0s)</option>
-                                </select>
-                            </div>
-
-                            <!-- Accuracy Expectation / Confidence Threshold -->
-                            <div class="form-group">
-                                <label>Expected Object Accuracy: <span id="conf-val" style="color: var(--primary-glow); font-weight: 700;">70%</span></label>
-                                <input type="range" id="confidence-range" min="10" max="95" value="70" class="select-input" style="padding: 0; height: 6px; background: rgba(255,255,255,0.1); cursor: pointer;" oninput="document.getElementById('conf-val').textContent = this.value + '%'">
-                            </div>
-
-                            <!-- Mission Details -->
-                            <div style="margin-top: 20px; padding-top: 15px; border-top: 1px dashed rgba(255,255,255,0.1);">
-                                <h3 style="color: #fff; font-size: 13px; margin-bottom: 12px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px;">📋 Mission Details</h3>
+                                <!-- Only weights already installed on the server. There is no
+                                     upload and no URL box: a .pt is pickled Python, so letting
+                                     the browser supply one would be handing the server code to
+                                     run. Add models with:
+                                       python -m model_source install <drive-url> name.pt -->
                                 <div class="form-group">
-                                    <label>Mission Title</label>
-                                    <input type="text" id="mission-title" class="select-input" placeholder="e.g. Changi Beach Patrol Run" style="width: 100%;">
+                                    <select class="select-input" id="model-select">
+                                        {% for m in available_models %}
+                                        <option value="{{ m.name }}"{% if m.name == default_model_name %} selected{% endif %}>{{ m.label }} — {{ m.size_mb }} MB</option>
+                                        {% endfor %}
+                                        {% if not available_models %}
+                                        <option value="">No models installed</option>
+                                        {% endif %}
+                                    </select>
+                                    <span class="field-hint">
+                                        {% if available_models %}
+                                        Loaded from the server's <code>models/</code> folder.
+                                        Add more with <code>python -m model_source install &lt;url&gt; name.pt</code>.
+                                        {% else %}
+                                        ⚠️ No weights installed. Run
+                                        <code>python -m model_source install &lt;drive-url&gt; beach_litter.pt</code>.
+                                        {% endif %}
+                                    </span>
                                 </div>
-                                <div class="form-group" style="margin-top: 12px;">
-                                    <label>Mission Date & Time</label>
-                                    <input type="datetime-local" id="mission-date" class="select-input" style="width: 100%;">
+                            </section>
+
+                            <!-- ============ 2. DETECTION QUALITY ============ -->
+                            <section class="config-section">
+                                <div class="config-section-head">
+                                    <span class="config-section-icon">⚡</span>
+                                    <div>
+                                        <h3>Detection quality</h3>
+                                        <p>How hard SAHI looks. Higher quality costs wall-clock time.</p>
+                                    </div>
                                 </div>
-                            </div>
+
+                                <!-- Presets drive the individual knobs below, which stay in the
+                                     DOM inside the Advanced drawer so submission is unchanged. -->
+                                <div class="preset-row" id="preset-row">
+                                    <button type="button" class="preset-btn" data-preset="thorough" onclick="applyPreset('thorough')">
+                                        <span class="preset-name">Thorough</span>
+                                        <span class="preset-sub">Most litter found</span>
+                                    </button>
+                                    <button type="button" class="preset-btn active" data-preset="balanced" onclick="applyPreset('balanced')">
+                                        <span class="preset-name">Balanced</span>
+                                        <span class="preset-sub">Recommended</span>
+                                    </button>
+                                    <button type="button" class="preset-btn" data-preset="fast" onclick="applyPreset('fast')">
+                                        <span class="preset-name">Fast</span>
+                                        <span class="preset-sub">Quick review pass</span>
+                                    </button>
+                                </div>
+
+                                <div class="sahi-estimate" id="sahi-estimate">
+                                    <span class="sahi-estimate-label">Workload</span>
+                                    <span class="sahi-estimate-value" id="sahi-estimate-value">60 tiles / 4K frame</span>
+                                </div>
+
+                                <div class="form-group" style="margin-top: 16px;">
+                                    <label>Detection confidence: <span id="conf-val" style="color: var(--primary-glow); font-weight: 700;">40%</span>
+                                        <span class="info-dot" title="Minimum score a detection needs to become a pin. Lower finds more litter but admits more false positives.">?</span>
+                                    </label>
+                                    <input type="range" id="confidence-range" min="10" max="95" value="40" class="select-input" style="padding: 0; height: 6px; background: rgba(255,255,255,0.1); cursor: pointer;" oninput="document.getElementById('conf-val').textContent = this.value + '%'">
+                                </div>
+
+                                <!-- Advanced drawer: every knob still reachable, just not shouting. -->
+                                <details class="advanced-drawer" id="advanced-drawer">
+                                    <summary>
+                                        <span class="drawer-caret">▸</span>
+                                        <span>Advanced</span>
+                                        <span class="drawer-summary" id="drawer-summary">SAHI on · 512px · 20% overlap · 1.0s</span>
+                                    </summary>
+                                    <div class="drawer-body">
+                                        <div class="sahi-config-header">
+                                            <h4>SAHI tiled inference
+                                                <span class="info-dot" title="Slices each frame into overlapping tiles so small litter is inspected at native resolution instead of being downscaled away. Turning this off runs plain whole-frame YOLO.">?</span>
+                                            </h4>
+                                            <label class="toggle-switch">
+                                                <input type="checkbox" id="sahi-enabled" checked onchange="sahiToggled(this.checked)">
+                                                <span class="toggle-slider"></span>
+                                            </label>
+                                        </div>
+
+                                        <div id="sahi-options">
+                                            <div class="form-group" style="margin-top: 12px;">
+                                                <label>Tile size
+                                                    <span class="info-dot" title="Smaller tiles mean small litter fills more of each tile's input resolution. 512px is the size tuned on this footage.">?</span>
+                                                </label>
+                                                <select class="select-input" id="slice-size" onchange="markCustomPreset(); updateSahiEstimate();">
+                                                    <option value="512" selected>512 px</option>
+                                                    <option value="640">640 px</option>
+                                                    <option value="768">768 px</option>
+                                                    <option value="960">960 px</option>
+                                                </select>
+                                            </div>
+
+                                            <div class="form-group" style="margin-top: 12px;">
+                                                <label>Tile overlap: <span id="overlap-val" style="color: var(--primary-glow); font-weight: 700;">20%</span>
+                                                    <span class="info-dot" title="How far neighbouring tiles overlap, so an object sitting on a cut line is still seen whole by at least one tile.">?</span>
+                                                </label>
+                                                <input type="range" id="overlap-range" min="0" max="50" value="20" class="select-input"
+                                                       style="padding: 0; height: 6px; background: rgba(255,255,255,0.1); cursor: pointer;"
+                                                       oninput="document.getElementById('overlap-val').textContent = this.value + '%'; markCustomPreset(); updateSahiEstimate();">
+                                            </div>
+
+                                            <div class="form-group" style="margin-top: 12px;">
+                                                <label>Sampling interval
+                                                    <span class="info-dot" title="How often a frame is analysed. Drone footage is highly redundant, so sampling every 1-2s loses almost nothing and cuts run time proportionally.">?</span>
+                                                </label>
+                                                <select class="select-input" id="interval-select" onchange="markCustomPreset(); updateSahiEstimate();">
+                                                    <option value="500">Every 0.5s</option>
+                                                    <option value="1000" selected>Every 1.0s</option>
+                                                    <option value="2000">Every 2.0s</option>
+                                                </select>
+                                            </div>
+
+                                            <div class="form-group" style="margin-top: 12px;">
+                                                <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                                                    <input type="checkbox" id="full-frame-pass" checked onchange="markCustomPreset()"
+                                                           style="accent-color: var(--primary-glow); cursor: pointer;">
+                                                    <span>Also run a full-frame pass</span>
+                                                    <span class="info-dot" title="Catches objects too large for any single tile and merges them into the tile results. Costs one extra inference per frame.">?</span>
+                                                </label>
+                                            </div>
+
+                                            <div class="form-group" style="margin-top: 12px;">
+                                                <label>Parallel workers: <span id="workers-val" style="color: var(--primary-glow); font-weight: 700;">auto</span>
+                                                    <span class="info-dot" title="Auto picks the fastest setup for this machine — every CPU core when there is no GPU, or a small pool feeding the GPU when there is one. Override only to cap load.">?</span>
+                                                </label>
+                                                <input type="range" id="workers-range" min="0" max="16" value="0" class="select-input"
+                                                       style="padding: 0; height: 6px; background: rgba(255,255,255,0.1); cursor: pointer;"
+                                                       oninput="workersChanged(this.value)">
+                                            </div>
+                                        </div>
+                                    </div>
+                                </details>
+                            </section>
+
+                            <!-- ============ 3. MISSION DETAILS ============ -->
+                            <section class="config-section last">
+                                <div class="config-section-head">
+                                    <span class="config-section-icon">📋</span>
+                                    <div>
+                                        <h3>Mission details</h3>
+                                        <p>How this run is labelled for volunteers and agency exports.</p>
+                                    </div>
+                                </div>
+                                <div class="mission-grid">
+                                    <div class="form-group">
+                                        <label>Title</label>
+                                        <input type="text" id="mission-title" class="select-input" placeholder="e.g. Changi Beach Patrol Run" style="width: 100%;">
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Date &amp; time</label>
+                                        <input type="datetime-local" id="mission-date" class="select-input" style="width: 100%;">
+                                    </div>
+                                </div>
+                            </section>
                         </div>
                     </div>
                 </div>
@@ -1200,7 +2388,67 @@
                     <span class="progress-percent" id="task-percent-label">0%</span>
                 </div>
             </div>
-            
+
+            <!-- Animated Pipeline Visualisation -->
+            <div class="glass-panel pipeline-card">
+                <!-- Rail of 9 dots: the only thing showing all steps, and it shows
+                     them as position alone. Hover a dot for its name. -->
+                <div class="rail-row">
+                    <div class="stage-rail" id="stage-rail">
+                        <!-- Rail dots injected by renderPipeline() -->
+                    </div>
+                    <span class="spotlight-step" id="spotlight-step"></span>
+                </div>
+
+                <!-- One step at a time. The visual slot holds either the stage icon
+                     or, while frames are being sliced and scanned, the live close-up
+                     grid — so the animation belongs to its step instead of standing
+                     as permanent furniture. -->
+                <div class="stage-spotlight" id="stage-spotlight">
+                    <div class="spotlight-visual">
+                        <div class="spotlight-icon" id="spotlight-icon">📥</div>
+                        <div class="tile-viz" id="tile-viz" style="display: none;">
+                            <div class="tile-grid" id="tile-grid"></div>
+                        </div>
+                    </div>
+
+                    <div class="spotlight-text">
+                        <div class="spotlight-title-row">
+                            <h3 id="spotlight-title">Waiting to start</h3>
+                            <span class="spotlight-tag" id="spotlight-tag" style="display:none;"></span>
+                        </div>
+                        <p id="spotlight-detail">Upload a flight video and telemetry log to begin.</p>
+                        <div class="spotlight-metric" id="spotlight-metric"></div>
+                    </div>
+
+                    <!-- Altitude sets the ground footprint, so it is the number
+                         that explains why the close-up scan is needed at all. -->
+                    <div class="alt-figure" id="alt-figure" title="Height the footage was flown at">
+                        <span class="alt-value" id="pstat-altitude">—</span>
+                        <span class="alt-label">Flight height</span>
+                    </div>
+
+                    <!-- The one number this screen leads with. -->
+                    <div class="hero-figure" id="hero-figure">
+                        <span class="hero-value" id="pstat-merged">—</span>
+                        <span class="hero-label">Litter found</span>
+                    </div>
+                </div>
+
+                <!-- Detail that used to sit on screen permanently now lives here,
+                     surfaced only on demand. -->
+                <details class="run-details" id="run-details">
+                    <summary><span class="drawer-caret">▸</span> Run details</summary>
+                    <div class="run-details-body" id="pipeline-stats">
+                        <div class="fstat"><span class="fstat-value" id="pstat-inferred">—</span><span class="fstat-label">Close-ups checked</span></div>
+                        <div class="fstat"><span class="fstat-value" id="pstat-tiles">—</span><span class="fstat-label">Per frame</span></div>
+                        <div class="fstat"><span class="fstat-value" id="pstat-fps">—</span><span class="fstat-label">Frames / sec</span></div>
+                        <div class="fstat" id="pstat-compute-wrap"><span class="fstat-value" id="pstat-cores">—</span><span class="fstat-label">Running on</span></div>
+                        <div class="fstat"><span class="fstat-value backend-badge" id="sahi-backend-badge" title="Which slicing implementation is running">—</span><span class="fstat-label">Method</span></div>
+                    </div>
+                </details>
+            </div>
+
             <!-- Live Workspace Split -->
             <div class="live-workspace">
                 <!-- Map Panel (Left) -->
@@ -1219,16 +2467,21 @@
                 
                 <!-- Live Streams Panel (Right) -->
                 <div class="right-streams">
-                    <!-- Console Output -->
-                    <div class="terminal-container">
-                        <div class="terminal-header">
-                            <span>PROCESSING STATION ENGINE LOGS</span>
+                    <!-- Console output. Collapsed by default: the spotlight already
+                         says what is happening in words, so the raw log is for when
+                         someone wants to dig. The header keeps the newest line
+                         visible so collapsing loses no signal. -->
+                    <details class="terminal-container" id="terminal-panel">
+                        <summary class="terminal-header">
+                            <span class="drawer-caret">▸</span>
+                            <span class="terminal-title">Engine logs</span>
+                            <span class="terminal-latest" id="terminal-latest">Ready.</span>
                             <span class="terminal-pulse"></span>
-                        </div>
+                        </summary>
                         <div class="terminal-body" id="terminal-logs">
                             <div class="terminal-line">[SYSTEM] Ready. Select video and flight logs to begin.</div>
                         </div>
-                    </div>
+                    </details>
                     
                     <!-- Live Detections -->
                     <div class="glass-panel detections-panel">
@@ -1244,28 +2497,166 @@
                             </div>
                         </div>
                     </div>
+
+                    <!-- Government Agency Export -->
                 </div>
             </div>
         </div>
     </main>
 
+    <!-- Scan-to-try: the phone demo, as a QR to hold up at a stand or on a call -->
+    <div class="modal-backdrop" id="share-modal" role="dialog" aria-modal="true"
+         onclick="if(event.target===this) closeShareModal()">
+        <div class="modal-card glass-panel" style="max-width: 430px; text-align: center;">
+            <button type="button" class="modal-close" onclick="closeShareModal()" aria-label="Close">×</button>
+            <h2 style="font-family:'Outfit';font-size:19px;font-weight:800;color:#fff;margin-bottom:4px;">
+                Try it on your phone
+            </h2>
+            <p style="font-size:12.5px;color:var(--text-secondary);margin-bottom:16px;">
+                Scan to replay a real East Coast Park patrol — the footage, the detections and the map.
+            </p>
+            <div class="qr-frame"><img id="share-qr" alt="QR code for the phone demo"></div>
+            <div class="qr-url" id="share-url">—</div>
+            <p class="field-hint" id="share-hint" style="margin-top:10px;"></p>
+            <div class="modal-foot" style="justify-content:center;">
+                <button type="button" class="btn btn-secondary btn-small" onclick="copyShareUrl()">
+                    <span id="copy-label">Copy link</span><span>🔗</span>
+                </button>
+                <a class="btn btn-secondary btn-small" id="share-open" href="/api/demo" target="_blank" rel="noopener">
+                    <span>Open demo</span><span>↗</span>
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Full-size detection crop -->
+    <div class="modal-backdrop" id="crop-modal" role="dialog" aria-modal="true"
+         onclick="if(event.target===this) closeCropViewer()">
+        <div class="crop-modal-card glass-panel">
+            <button type="button" class="modal-close" onclick="closeCropViewer()" aria-label="Close">×</button>
+            <img id="crop-modal-img" alt="Detection crop">
+            <div class="crop-modal-info">
+                <h3 id="crop-modal-class">—</h3>
+                <p id="crop-modal-meta">—</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Agency export. Lives in a completion dialog rather than the live column:
+         while a run is in progress it can only report zeros, and it was crowding
+         out the detections list, which is the thing worth watching. -->
+    <div class="modal-backdrop" id="export-modal" role="dialog" aria-modal="true"
+         aria-labelledby="export-modal-title" onclick="if(event.target===this) closeExportModal()">
+        <div class="modal-card glass-panel">
+            <button type="button" class="modal-close" onclick="closeExportModal()" aria-label="Close">×</button>
+            <div class="modal-head">
+                <span class="modal-tick">✅</span>
+                <div>
+                    <h2 id="export-modal-title">Patrol complete</h2>
+                    <p><b id="export-total">0</b> pieces of litter mapped and pushed to the volunteer app.</p>
+                </div>
+            </div>
+
+            <div class="export-summary-line" id="export-summary">
+                <span><b id="export-outstanding">0</b> outstanding</span>
+                <span><b id="export-confidence">0%</b> mean confidence</span>
+                <span class="export-ready-badge" id="export-ready-badge">Pending</span>
+            </div>
+
+            <p class="export-blurb">
+                Official evidence package for <strong>NEA, marine parks and municipal waste teams</strong>.
+            </p>
+            <div class="export-buttons">
+                <button type="button" class="export-btn" onclick="downloadExport('csv')" title="Opens in Excel; ingests into municipal databases">
+                    <span class="export-icon">📊</span>
+                    <span class="export-name">CSV</span>
+                    <span class="export-desc">Spreadsheet</span>
+                </button>
+                <button type="button" class="export-btn" onclick="downloadExport('geojson')" title="Drops straight into QGIS, ArcGIS or Google Earth">
+                    <span class="export-icon">🗺️</span>
+                    <span class="export-name">GeoJSON</span>
+                    <span class="export-desc">GIS Layer</span>
+                </button>
+                <button type="button" class="export-btn" onclick="downloadExport('pdf')" title="Formal situation report for filing or forwarding">
+                    <span class="export-icon">📄</span>
+                    <span class="export-name">PDF</span>
+                    <span class="export-desc">Report</span>
+                </button>
+            </div>
+            <div class="export-status" id="export-status"></div>
+
+            <div class="modal-foot">
+                <button type="button" class="btn btn-secondary btn-small" onclick="closeExportModal()">
+                    <span>Back to the map</span>
+                </button>
+                <button type="button" class="btn btn-secondary btn-small" onclick="closeExportModal(); resetWizard();">
+                    <span>Start new session</span><span>🔄</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- Leaflet JS -->
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <script src="/static/vendor/leaflet.js"></script>
+    <script src="/static/vendor/leaflet.markercluster.js"></script>
     <script>
-        // Leaflet Map Initialization
-        // Initialize at Singapore coordinates as a default
-        const map = L.map('map').setView([1.3521, 103.8198], 12);
-        
-        // Premium Dark Matter TileLayer (fits aesthetic beautifully)
-        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        // Leaflet Map Initialization.
+        // Opens on the patrol area rather than the whole island: at city zoom a
+        // coastal survey is a couple of invisible pixels.
+        const map = L.map('map').setView(
+            [{{ map_default_lat }}, {{ map_default_lng }}], {{ map_default_zoom }});
+
+        // Satellite is the default basemap. The dark vector style looked good but
+        // rendered a beach as an empty black field — no sand, no waterline, no
+        // groynes — so there was nothing to judge a litter pin against.
+        const satelliteLayer = L.tileLayer(
+            '/api/tiles/sat/{z}/{x}/{y}.jpg', {
+            attribution: 'Imagery &copy; Esri, Maxar, Earthstar Geographics',
+            maxZoom: 21,
+            maxNativeZoom: 19
+        });
+        // Place names on top of the imagery, which carries none of its own.
+        const labelsLayer = L.tileLayer(
+            '/api/tiles/labels/{z}/{x}/{y}.png', {
             attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
-            subdomains: 'abcd',
+            maxZoom: 20,
+            opacity: 0.8
+        });
+        const darkLayer = L.tileLayer(
+            '/api/tiles/dark/{z}/{x}/{y}.png', {
+            attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
             maxZoom: 20
-        }).addTo(map);
+        });
+
+        const satelliteGroup = L.layerGroup([satelliteLayer, labelsLayer]).addTo(map);
+        L.control.layers(
+            { 'Satellite': satelliteGroup, 'Dark': darkLayer },
+            null,
+            { position: 'bottomleft', collapsed: true }
+        ).addTo(map);
 
         let pathLine = L.polyline([], {color: '#00f0ff', weight: 2, opacity: 0.9}).addTo(map);
         let flightPathLine = L.polyline([], {color: '#bc13fe', weight: 4, opacity: 0.6, dashArray: '8, 8'}).addTo(map);
-        let markersGroup = L.layerGroup().addTo(map);
+        // Pins group while they overlap and split apart as you zoom in, so a
+        // cluttered patch of beach reads as "14 items here" rather than a stack
+        // of thumbnails hiding each other. Falls back to a plain layer group if
+        // the plugin fails to load, so the map still works offline.
+        let markersGroup = (typeof L.markerClusterGroup === 'function')
+            ? L.markerClusterGroup({
+                maxClusterRadius: 44,
+                spiderfyOnMaxZoom: true,
+                showCoverageOnHover: false,
+                disableClusteringAtZoom: 21,
+                iconCreateFunction: function (cluster) {
+                    const n = cluster.getChildCount();
+                    return L.divIcon({
+                        className: 'litter-cluster-icon',
+                        html: `<div class="litter-cluster"><span>${n}</span></div>`,
+                        iconSize: [38, 38]
+                    });
+                }
+              }).addTo(map)
+            : L.layerGroup().addTo(map);
         let currentTaskId = null;
         let pollInterval = null;
         let droneMarker = null;
@@ -1276,8 +2667,14 @@
         let telemetryFile = null;
         let seenDetections = new Set();
         let videoOverlay = null;
+        let cameraFootprint = null;
+        // The survey is framed once per run, not on every poll, so the operator can
+        // pan and zoom without the map snapping back a second later.
+        let hasFramedFlightPath = false;
         let projectVideoOnMap = false;
         let lastTaskData = null;
+        // Detection count at the previous poll, used to trigger the tile-hit flash.
+        let lastDetectionTotal = 0;
         let videoObjectURL = null;
 
         // Set default mission date/time to now
@@ -1289,12 +2686,121 @@
             }
         }, 100);
 
+        // Sample runs stream the footage straight from the server. Pulling 500MB
+        // into a Blob just to make an object URL would be absurd when the file is
+        // already sitting behind a URL the <video> element can range-request.
+        const SAMPLE_PREVIEW_URL = {{ sample_preview_url | tojson }};
+        let usingSample = false;
+
         function getVideoObjectURL() {
+            if (usingSample) return SAMPLE_PREVIEW_URL;
             if (!videoObjectURL && videoFile) {
                 videoObjectURL = URL.createObjectURL(videoFile);
             }
             return videoObjectURL;
         }
+
+        /**
+         * One-click demo: the footage and telemetry already live on the server, so
+         * there is nothing to upload. Skips straight to the live monitor with the
+         * tuned defaults and the video projecting onto the map.
+         */
+        async function runSample() {
+            const btn = document.getElementById('run-sample-btn');
+            btn.disabled = true;
+            btn.querySelector('span').textContent = 'Starting…';
+
+            usingSample = true;
+            // Satisfies the overlay's "do we have footage?" checks without a File.
+            videoFile = { name: 'sample.mp4', sample: true };
+
+            applyPreset('balanced');
+            if (!document.getElementById('mission-title').value) {
+                document.getElementById('mission-title').value =
+                    'Sample patrol — {{ sample_location_label }}';
+            }
+
+            prepareRunUI();
+            addTerminalLine('🏖️  Running the bundled sample patrol — no upload needed.', 'success');
+
+            const formData = new FormData();
+            formData.append('use_sample', 'true');
+            appendEngineFields(formData);
+
+            // Project the footage over the map by default: it is the most
+            // legible thing on screen while the scan runs.
+            document.getElementById('video-overlay-toggle').checked = true;
+            projectVideoOnMap = true;
+
+            await submitProcessingRequest(formData, () => {
+                btn.disabled = false;
+                btn.querySelector('span').textContent = 'Run this sample';
+            });
+        }
+
+        /** Full-size view of a single detection crop. */
+        function openCropViewer(cluster) {
+            const modal = document.getElementById('crop-modal');
+            document.getElementById('crop-modal-img').src = cluster.image_url || MISSING_CROP;
+            document.getElementById('crop-modal-class').textContent = cluster.class.toUpperCase();
+            document.getElementById('crop-modal-meta').textContent =
+                `${(cluster.max_confidence * 100).toFixed(0)}% confidence · seen ${cluster.sightings.length}× · ` +
+                `${cluster.avg_latitude.toFixed(6)}, ${cluster.avg_longitude.toFixed(6)}`;
+            modal.classList.add('open');
+        }
+        function closeCropViewer() {
+            document.getElementById('crop-modal').classList.remove('open');
+        }
+
+        // ---- Scan-to-try QR ----
+        function demoShareUrl() {
+            // A phone cannot reach 127.0.0.1, so a localhost dashboard cannot
+            // produce a scannable link — say so rather than encoding a dead URL.
+            return new URL('/api/demo', window.location.origin).href;
+        }
+
+        function openShareModal() {
+            const url = demoShareUrl();
+            const host = window.location.hostname;
+            const isLocal = host === 'localhost' || host === '127.0.0.1' || host === '::1';
+
+            document.getElementById('share-url').textContent = url;
+            document.getElementById('share-open').href = '/api/demo';
+            document.getElementById('share-qr').src =
+                '/api/demo/qr?url=' + encodeURIComponent(url) + '&t=' + Date.now();
+
+            const hint = document.getElementById('share-hint');
+            if (isLocal) {
+                hint.innerHTML = '⚠️ This link points at <code>' + host + '</code>, which a phone ' +
+                    'cannot reach. Serve on your machine\'s network address, or deploy, then reopen this.';
+                hint.style.color = 'var(--danger-color)';
+            } else {
+                hint.textContent = 'Point a phone camera at the code. The demo needs no install and no login.';
+                hint.style.color = '';
+            }
+            document.getElementById('share-modal').classList.add('open');
+        }
+        function closeShareModal() {
+            document.getElementById('share-modal').classList.remove('open');
+        }
+        function copyShareUrl() {
+            const label = document.getElementById('copy-label');
+            navigator.clipboard.writeText(demoShareUrl()).then(() => {
+                label.textContent = 'Copied';
+                setTimeout(() => { label.textContent = 'Copy link'; }, 1600);
+            }).catch(() => { label.textContent = 'Copy failed'; });
+        }
+
+        // ---- Completion dialog ----
+        function openExportModal() {
+            document.getElementById('export-modal').classList.add('open');
+        }
+        function closeExportModal() {
+            document.getElementById('export-modal').classList.remove('open');
+        }
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape') { closeExportModal(); closeCropViewer(); closeShareModal(); }
+        });
 
         // Wizard steps navigation
         function goToStep(step) {
@@ -1463,33 +2969,14 @@
             }
         });
 
-        // Step 2 Custom weight UI details
-        function modelTypeChanged(select) {
-            const customContainer = document.getElementById('custom-model-container');
-            if (select.value === 'custom') {
-                customContainer.style.display = 'block';
-            } else {
-                customContainer.style.display = 'none';
-            }
-        }
+        // Configured default weights, used on first paint and when resetting.
 
-        function customModelSelected(input) {
-            const label = document.getElementById('custom-model-file-name');
-            if (input.files && input.files.length > 0) {
-                label.textContent = `📄 ${input.files[0].name} (${formatBytes(input.files[0].size)})`;
-                label.style.color = 'var(--success-color)';
-            } else {
-                label.textContent = `Click to select custom weights (.pt)`;
-                label.style.color = '';
-            }
-        }
 
         function resetWizard() {
             document.getElementById('video-input').value = '';
             document.getElementById('telemetry-input').value = '';
-            document.getElementById('custom-model-file').value = '';
-            document.getElementById('confidence-range').value = '70';
-            document.getElementById('conf-val').textContent = '70%';
+            document.getElementById('confidence-range').value = '40';
+            document.getElementById('conf-val').textContent = '40%';
             
             videoFile = null;
             telemetryFile = null;
@@ -1503,10 +2990,7 @@
             document.getElementById('telemetry-file-info').style.display = 'none';
             document.getElementById('telemetry-upload-prompt').style.display = 'block';
 
-            document.getElementById('custom-model-file-name').textContent = 'Click to select custom weights (.pt)';
-            document.getElementById('custom-model-file-name').style.color = '';
-            document.getElementById('model-select').value = 'solar_panel.pt';
-            document.getElementById('custom-model-container').style.display = 'none';
+            applyPreset('balanced');
             
             pathLine.setLatLngs([]);
             flightPathLine.setLatLngs([]);
@@ -1515,14 +2999,19 @@
                 droneMarker.remove();
                 droneMarker = null;
             }
-            if (videoOverlay) {
-                videoOverlay.remove();
-                videoOverlay = null;
-            }
+            clearVideoProjection();
             if (videoObjectURL) {
                 URL.revokeObjectURL(videoObjectURL);
                 videoObjectURL = null;
             }
+            usingSample = false;
+            closeExportModal();
+            const sampleBtn = document.getElementById('run-sample-btn');
+            if (sampleBtn) {
+                sampleBtn.disabled = false;
+                sampleBtn.querySelector('span').textContent = 'Run this sample';
+            }
+            hasFramedFlightPath = false;
             projectVideoOnMap = false;
             document.getElementById('video-overlay-toggle').checked = false;
             lastTaskData = null;
@@ -1532,32 +3021,124 @@
         }
 
         // Form submission triggers background processing task
-        document.getElementById('processing-form').addEventListener('submit', async function(e) {
-            e.preventDefault();
-            
-            const videoFileObj = document.getElementById('video-input').files[0];
-            const telemetryFileObj = document.getElementById('telemetry-input').files[0];
-            const modelSelect = document.getElementById('model-select').value;
-            const customModelFileObj = document.getElementById('custom-model-file').files[0];
-            const interval = document.getElementById('interval-select').value;
+        // ===================== SAHI configuration (Step 2) =====================
 
-            if (!videoFileObj || !telemetryFileObj) {
-                alert('⚠️ Please select both a drone flight video and a telemetry log file.');
-                goToStep(1);
+        function sahiToggled(enabled) {
+            document.getElementById('sahi-options').classList.toggle('disabled', !enabled);
+            markCustomPreset();
+            updateSahiEstimate();
+        }
+
+        function workersChanged(value) {
+            // 0 on the slider means "let the server decide" (cores - 1).
+            document.getElementById('workers-val').textContent =
+                (parseInt(value, 10) === 0) ? 'auto' : `${value} core${value === '1' ? '' : 's'}`;
+        }
+
+        /**
+         * Quality presets. Each sets the individual knobs, which still live in the
+         * Advanced drawer — the preset is a shortcut, not a separate code path, so
+         * form submission reads the same inputs either way.
+         */
+        const QUALITY_PRESETS = {
+            thorough: { slice: 512, overlap: 25, interval: 500,  fullFrame: true,  sahi: true },
+            balanced: { slice: 512, overlap: 20, interval: 1000, fullFrame: true,  sahi: true },
+            fast:     { slice: 768, overlap: 15, interval: 2000, fullFrame: false, sahi: true }
+        };
+
+        let suppressPresetReset = false;
+
+        function applyPreset(name) {
+            const preset = QUALITY_PRESETS[name];
+            if (!preset) return;
+
+            // Knob handlers call markCustomPreset(); suppress that while we drive them.
+            suppressPresetReset = true;
+
+            document.getElementById('slice-size').value = String(preset.slice);
+            document.getElementById('overlap-range').value = String(preset.overlap);
+            document.getElementById('overlap-val').textContent = preset.overlap + '%';
+            document.getElementById('interval-select').value = String(preset.interval);
+            document.getElementById('full-frame-pass').checked = preset.fullFrame;
+
+            const sahiToggle = document.getElementById('sahi-enabled');
+            sahiToggle.checked = preset.sahi;
+            document.getElementById('sahi-options').classList.toggle('disabled', !preset.sahi);
+
+            suppressPresetReset = false;
+
+            document.querySelectorAll('.preset-btn').forEach(btn =>
+                btn.classList.toggle('active', btn.dataset.preset === name));
+            updateSahiEstimate();
+        }
+
+        /** Touching any individual knob means the settings no longer match a preset. */
+        function markCustomPreset() {
+            if (suppressPresetReset) return;
+            document.querySelectorAll('.preset-btn').forEach(btn => btn.classList.remove('active'));
+            updateSahiEstimate();
+        }
+
+        /**
+         * Tile count for a frame under the currently selected SAHI settings.
+         * Mirrors SAHI's get_slice_bboxes() so the operator sees the real workload
+         * before committing. Note the step is slice - floor(overlap * slice), not
+         * floor(slice * (1 - overlap)); those differ by a pixel at 512/20% and that
+         * is enough to shift the tile count by a whole column.
+         */
+        function sahiTilesEstimate(width = 3840, height = 2160) {
+            if (!document.getElementById('sahi-enabled').checked) return 1;
+
+            const slice = parseInt(document.getElementById('slice-size').value, 10);
+            const overlap = parseInt(document.getElementById('overlap-range').value, 10) / 100;
+            if (width <= slice && height <= slice) return 1;
+
+            const step = Math.max(1, slice - Math.floor(overlap * slice));
+            const cols = width <= slice ? 1 : Math.ceil((width - slice) / step) + 1;
+            const rows = height <= slice ? 1 : Math.ceil((height - slice) / step) + 1;
+            return cols * rows;
+        }
+
+        function updateSahiEstimate() {
+            const target = document.getElementById('sahi-estimate-value');
+            const sahiOn = document.getElementById('sahi-enabled').checked;
+            const interval = parseInt(document.getElementById('interval-select').value, 10) / 1000;
+
+            if (!sahiOn) {
+                target.textContent = `whole frame, no slicing · 1 frame every ${interval}s`;
+            } else {
+                target.textContent =
+                    `${sahiTilesEstimate(3840, 2160)} tiles / 4K frame · ` +
+                    `${sahiTilesEstimate(1920, 1080)} / 1080p · 1 frame every ${interval}s`;
+            }
+            updateDrawerSummary();
+        }
+
+        /** Keeps the collapsed drawer honest about what it is hiding. */
+        function updateDrawerSummary() {
+            const el = document.getElementById('drawer-summary');
+            if (!el) return;
+            const sahiOn = document.getElementById('sahi-enabled').checked;
+            const interval = parseInt(document.getElementById('interval-select').value, 10) / 1000;
+            if (!sahiOn) {
+                el.textContent = `SAHI off · ${interval}s sampling`;
                 return;
             }
+            const slice = document.getElementById('slice-size').value;
+            const overlap = document.getElementById('overlap-range').value;
+            const full = document.getElementById('full-frame-pass').checked ? ' · +full frame' : '';
+            el.textContent = `SAHI ${slice}px · ${overlap}% overlap · ${interval}s${full}`;
+        }
 
-            if (modelSelect === 'custom' && !customModelFileObj) {
-                alert('⚠️ Please upload your custom YOLO model weights (.pt file).');
-                return;
-            }
-
-            // Transition directly to Step 3 Monitoring
+        /**
+         * Clears the live monitor and moves to step 3.
+         * Shared by the upload flow and the one-click sample so the two can never
+         * drift into resetting different subsets of the UI.
+         */
+        function prepareRunUI() {
             goToStep(3);
-            
-            const confidenceVal = parseFloat(document.getElementById('confidence-range').value) / 100.0;
+            closeExportModal();
 
-            // Hide Start New Session button while processing, set initial states
             document.getElementById('new-session-btn').style.display = 'none';
             document.getElementById('task-status-label').textContent = 'Status: STARTING';
             document.getElementById('task-percent-label').textContent = '0%';
@@ -1566,7 +3147,41 @@
             document.getElementById('terminal-logs').innerHTML = '';
             document.getElementById('detections-box').innerHTML = '';
             document.getElementById('detections-count-badge').textContent = '0';
-            
+
+            lastDetectionTotal = 0;
+            stopTileScan();
+            tileCellCount = 0;
+            renderedTiles = 0;
+            document.getElementById('tile-grid').innerHTML = '';
+            const rail = document.getElementById('stage-rail');
+            rail.innerHTML = '';
+            rail.dataset.signature = '';
+            spotlightKey = null;
+            document.querySelector('.pipeline-card').classList.remove('is-done', 'is-failed');
+            document.getElementById('spotlight-icon').textContent = '📥';
+            document.getElementById('spotlight-icon').style.display = '';
+            document.getElementById('spotlight-title').textContent = 'Getting started';
+            document.getElementById('spotlight-detail').textContent =
+                'Handing the flight over to the processing station…';
+            document.getElementById('spotlight-metric').textContent = '';
+            document.getElementById('spotlight-step').textContent = '';
+            document.getElementById('spotlight-tag').style.display = 'none';
+            document.getElementById('tile-viz').style.display = 'none';
+            document.getElementById('run-details').open = false;
+
+            const backendBadge = document.getElementById('sahi-backend-badge');
+            backendBadge.textContent = '—';
+            backendBadge.classList.remove('fallback');
+            document.getElementById('pstat-altitude').textContent = '—';
+
+            document.getElementById('export-status').textContent = '';
+            document.getElementById('export-total').textContent = '0';
+            document.getElementById('export-outstanding').textContent = '0';
+            document.getElementById('export-confidence').textContent = '0%';
+            markExportReady(false);
+            buildTileGrid(sahiTilesEstimate());
+
+            hasFramedFlightPath = false;
             seenDetections.clear();
             markersGroup.clearLayers();
             pathLine.setLatLngs([]);
@@ -1575,8 +3190,101 @@
                 droneMarker.remove();
                 droneMarker = null;
             }
-            addTerminalLine('🚀 Initiating ingestion pipelines & background YOLO thread...', 'success');
-            
+        }
+
+        /** Appends the engine settings both run paths share. */
+        function appendEngineFields(formData) {
+            const modelSelect = document.getElementById('model-select').value;
+            formData.append('interval_ms', document.getElementById('interval-select').value);
+            formData.append('min_confidence',
+                parseFloat(document.getElementById('confidence-range').value) / 100.0);
+
+            // Just a name; the server resolves it against its models folder.
+            formData.append('model_name', modelSelect);
+
+            const missionTitle = document.getElementById('mission-title').value;
+            const missionDate = document.getElementById('mission-date').value;
+            if (missionTitle) formData.append('mission_title', missionTitle);
+            if (missionDate) formData.append('mission_date', missionDate);
+
+            const workerCount = parseInt(document.getElementById('workers-range').value, 10);
+            formData.append('sahi_enabled', document.getElementById('sahi-enabled').checked);
+            formData.append('slice_size', document.getElementById('slice-size').value);
+            formData.append('overlap_ratio',
+                parseInt(document.getElementById('overlap-range').value, 10) / 100);
+            formData.append('include_full_frame', document.getElementById('full-frame-pass').checked);
+            if (workerCount > 0) formData.append('workers', workerCount);
+            return formData;
+        }
+
+        /** POSTs the run and starts polling. */
+        // XHR rather than fetch purely for `upload.onprogress`. A DJI clip is
+        // often 1-3 GB, and with no progress the browser sits silent for the
+        // whole send — which reads as a hung app rather than a working upload.
+        function postProcessingRequest(formData) {
+            return new Promise((resolve, reject) => {
+                const xhr = new XMLHttpRequest();
+                xhr.open('POST', '/api/process');
+                let lastPct = -10;
+                xhr.upload.onprogress = (e) => {
+                    if (!e.lengthComputable || e.total < 2 * 1024 * 1024) return;
+                    const pct = Math.round((e.loaded / e.total) * 100);
+                    if (pct - lastPct >= 10 || pct === 100) {
+                        const mb = (e.loaded / 1048576).toFixed(0), totalMB = (e.total / 1048576).toFixed(0);
+                        addTerminalLine(`📤 Sending to server: ${pct}% (${mb}MB / ${totalMB}MB)`);
+                        lastPct = pct;
+                    }
+                };
+                xhr.upload.onload = () => addTerminalLine('✅ Upload received. Staging the flight…', 'success');
+                xhr.onload = () => {
+                    if (xhr.status >= 200 && xhr.status < 300) {
+                        try { resolve(JSON.parse(xhr.responseText)); }
+                        catch (e) { reject(new Error('Malformed response from server.')); }
+                    } else {
+                        reject(new Error(xhr.responseText || `HTTP ${xhr.status}`));
+                    }
+                };
+                xhr.onerror = () => reject(new Error('Network error talking to the processing station.'));
+                xhr.send(formData);
+            });
+        }
+
+        async function submitProcessingRequest(formData, onError) {
+            try {
+                const data = await postProcessingRequest(formData);
+                currentTaskId = data.task_id;
+                document.getElementById('terminal-task-id').textContent =
+                    `TASK: ${currentTaskId.substring(0, 8)}...`;
+                addTerminalLine('🚀 Request accepted. Background engine worker running.', 'success');
+                pollInterval = setInterval(pollTaskStatus, 1000);
+            } catch (err) {
+                alert(`Error starting process: ${err.message}`);
+                document.getElementById('task-status-label').textContent = 'Status: FAILED';
+                addTerminalLine(`❌ API Exception: ${err.message}`, 'error');
+                document.getElementById('new-session-btn').style.display = 'inline-block';
+                if (onError) onError();
+            }
+        }
+
+        document.getElementById('processing-form').addEventListener('submit', async function(e) {
+            e.preventDefault();
+
+            const videoFileObj = document.getElementById('video-input').files[0];
+            const telemetryFileObj = document.getElementById('telemetry-input').files[0];
+            const modelSelect = document.getElementById('model-select').value;
+            const interval = document.getElementById('interval-select').value;
+
+            if (!videoFileObj || !telemetryFileObj) {
+                alert('⚠️ Please select both a drone flight video and a telemetry log file.');
+                goToStep(1);
+                return;
+            }
+
+
+
+            prepareRunUI();
+            addTerminalLine('🚀 Initiating ingestion pipelines & background engine thread...', 'success');
+
             let videoUrl = null;
             let gcsVideoPath = null;
             
@@ -1652,45 +3360,9 @@
                 formData.append('video', videoFileObj);
             }
             formData.append('telemetry', telemetryFileObj);
-            formData.append('interval_ms', interval);
-            formData.append('min_confidence', confidenceVal);
-            
-            if (modelSelect === 'custom') {
-                formData.append('custom_model', customModelFileObj);
-            } else {
-                formData.append('model_name', modelSelect);
-            }
+            appendEngineFields(formData);
 
-            const missionTitle = document.getElementById('mission-title').value;
-            const missionDate = document.getElementById('mission-date').value;
-            if (missionTitle) formData.append('mission_title', missionTitle);
-            if (missionDate) formData.append('mission_date', missionDate);
-
-            try {
-                const response = await fetch('/api/process', {
-                    method: 'POST',
-                    body: formData
-                });
-                
-                if (!response.ok) {
-                    throw new Error(await response.text());
-                }
-
-                const data = await response.json();
-                currentTaskId = data.task_id;
-                
-                document.getElementById('terminal-task-id').textContent = `TASK: ${currentTaskId.substring(0, 8)}...`;
-                addTerminalLine('🚀 Ingestion request accepted. Background engine worker running.', 'success');
-
-                // Start polling status
-                pollInterval = setInterval(pollTaskStatus, 1000);
-
-            } catch (err) {
-                alert(`Error starting process: ${err.message}`);
-                document.getElementById('task-status-label').textContent = 'Status: FAILED';
-                addTerminalLine(`❌ API Exception: ${err.message}`, 'error');
-                document.getElementById('new-session-btn').style.display = 'inline-block';
-            }
+            await submitProcessingRequest(formData);
         });
 
         function updateDroneMarker(currentDroneLoc) {
@@ -1768,12 +3440,21 @@
             }
         }
 
+        /** Removes the projected video and its footprint outline together. */
+        function clearVideoProjection() {
+            if (videoOverlay) {
+                videoOverlay.remove();
+                videoOverlay = null;
+            }
+            if (cameraFootprint) {
+                cameraFootprint.remove();
+                cameraFootprint = null;
+            }
+        }
+
         function updateVideoOverlay(currentDroneLoc) {
             if (!projectVideoOnMap || !currentDroneLoc || !videoFile || !lastTaskData) {
-                if (videoOverlay) {
-                    videoOverlay.remove();
-                    videoOverlay = null;
-                }
+                clearVideoProjection();
                 return;
             }
             
@@ -1802,8 +3483,12 @@
             ];
             
             if (!videoOverlay) {
+                // Near-opaque: at 0.75 the dark basemap bled through and muddied the
+                // footage. The footprint outline below is what ties it to the map,
+                // so the video itself no longer has to be see-through to read as
+                // "this patch of ground".
                 videoOverlay = L.videoOverlay(getVideoObjectURL(), bounds, {
-                    opacity: 0.75,
+                    opacity: 0.95,
                     interactive: false,
                     autoplay: true,
                     muted: true,
@@ -1812,7 +3497,18 @@
             } else {
                 videoOverlay.setBounds(bounds);
             }
-            
+
+            // A glowing rectangle marking exactly what the camera is covering, so
+            // the projection is legible as a footprint rather than a floating video.
+            if (!cameraFootprint) {
+                cameraFootprint = L.rectangle(bounds, {
+                    color: '#00f0ff', weight: 2, opacity: 0.9,
+                    fill: false, interactive: false, className: 'camera-footprint'
+                }).addTo(map);
+            } else {
+                cameraFootprint.setBounds(bounds);
+            }
+
             const mapVideo = videoOverlay.getElement();
             if (mapVideo) {
                 mapVideo.style.width = '100%';
@@ -1836,10 +3532,7 @@
         function toggleVideoOverlay(checked) {
             projectVideoOnMap = checked;
             if (!checked) {
-                if (videoOverlay) {
-                    videoOverlay.remove();
-                    videoOverlay = null;
-                }
+                clearVideoProjection();
                 if (droneMarker && lastTaskData && lastTaskData.flight_path && lastTaskData.flight_path.length > 0) {
                     const progressIdx = Math.min(
                         lastTaskData.flight_path.length - 1,
@@ -1860,6 +3553,338 @@
         }
 
         // Status Polling Loop
+        // ===================== Animated pipeline visualisation =====================
+
+        // Icon per pipeline stage key, matching PIPELINE_STAGES in processing_task.py.
+        const STAGE_ICONS = {
+            ingest: '📥', telemetry: '📍', weights: '🎯', model: '🧠', slicing: '🔲',
+            inference: '⚡', georeference: '🌐', publish: '📡', export: '🏛️'
+        };
+
+        let tileScanTimer = null;
+        let tileCellCount = 0;      // cells actually drawn (grid is padded to a rectangle)
+        let renderedTiles = 0;      // tile count the grid was built for
+
+        /**
+         * Draws the tile grid used by the SAHI scan animation.
+         * The grid is a scaled-down stand-in for the real decomposition — same
+         * column/row ratio, capped at a size that stays legible on screen.
+         */
+        function buildTileGrid(tilesPerFrame) {
+            const grid = document.getElementById('tile-grid');
+            if (!grid) return;
+
+            const total = Math.max(1, Math.min(tilesPerFrame || 1, 48));
+            // Approximate a 16:9 layout for the given tile count.
+            const cols = Math.max(1, Math.round(Math.sqrt(total * (16 / 9))));
+            const rows = Math.max(1, Math.ceil(total / cols));
+
+            grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+            grid.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
+            grid.innerHTML = '';
+            for (let i = 0; i < cols * rows; i++) {
+                const cell = document.createElement('div');
+                cell.className = 'tile-cell';
+                grid.appendChild(cell);
+            }
+            tileCellCount = cols * rows;
+            renderedTiles = tilesPerFrame || 0;
+        }
+
+        /** Runs a repeating sweep across the tile grid while inference is active. */
+        function startTileScan() {
+            if (tileScanTimer || tileCellCount === 0) return;
+            let index = 0;
+            tileScanTimer = setInterval(() => {
+                const cells = document.querySelectorAll('#tile-grid .tile-cell');
+                if (!cells.length) return;
+                cells.forEach(c => c.classList.remove('scanning'));
+                cells[index % cells.length].classList.add('scanning');
+                index++;
+            }, 90);
+        }
+
+        function stopTileScan() {
+            if (tileScanTimer) {
+                clearInterval(tileScanTimer);
+                tileScanTimer = null;
+            }
+            document.querySelectorAll('#tile-grid .tile-cell')
+                .forEach(c => c.classList.remove('scanning'));
+        }
+
+        /** Flashes a random tile red to mark a fresh detection. */
+        function flashTileHit() {
+            const cells = document.querySelectorAll('#tile-grid .tile-cell');
+            if (!cells.length) return;
+            const cell = cells[Math.floor(Math.random() * cells.length)];
+            cell.classList.add('hit');
+            setTimeout(() => cell.classList.remove('hit'), 900);
+        }
+
+        // Which stage the spotlight is currently showing, so we only re-animate
+        // when it actually moves rather than on every one-second poll.
+        let spotlightKey = null;
+
+        // Inline placeholder for a crop that failed to load, so the grid keeps its
+        // shape instead of showing the browser's broken-image glyph.
+        const MISSING_CROP =
+            'data:image/svg+xml;utf8,' + encodeURIComponent(
+                '<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80">' +
+                '<rect width="80" height="80" fill="#0d1520"/>' +
+                '<text x="50%" y="46%" font-size="22" text-anchor="middle" fill="#2a3647">?</text>' +
+                '<text x="50%" y="70%" font-size="8" text-anchor="middle" fill="#2a3647">no image</text>' +
+                '</svg>');
+
+        /**
+         * Renders the pipeline: a rail of dots for position, and one spotlit
+         * stage for meaning. Only the active stage is expanded, so the panel
+         * carries a single sentence instead of nine competing labels.
+         */
+        function renderPipeline(stages) {
+            const rail = document.getElementById('stage-rail');
+            if (!rail || !stages || !stages.length) return;
+
+            // Rebuild the rail only when the stage set changes; otherwise patch in
+            // place so CSS animations are not restarted every poll.
+            const signature = stages.map(s => s.key).join('|');
+            if (rail.dataset.signature !== signature) {
+                rail.innerHTML = '';
+                stages.forEach((stage, i) => {
+                    const node = document.createElement('div');
+                    node.className = 'rail-node';
+                    node.dataset.key = stage.key;
+                    node.innerHTML = `<div class="rail-dot"></div>` +
+                        (i < stages.length - 1 ? `<div class="rail-line"></div>` : '');
+                    rail.appendChild(node);
+                });
+                rail.dataset.signature = signature;
+            }
+
+            stages.forEach(stage => {
+                const node = rail.querySelector(`.rail-node[data-key="${stage.key}"]`);
+                if (!node) return;
+                const desired = `rail-node ${stage.status}`;
+                if (node.className !== desired) node.className = desired;
+                // Hovering a dot names its stage without spending layout on it.
+                node.title = `${stage.label}${stage.metric ? ' — ' + stage.metric : ''}`;
+                const dot = node.querySelector('.rail-dot');
+                const glyph = stage.status === 'completed' ? '✓'
+                            : stage.status === 'failed' ? '!'
+                            : (STAGE_ICONS[stage.key] || '');
+                if (dot.textContent !== glyph) dot.textContent = glyph;
+            });
+
+            // The spotlight follows the active stage; once everything is done it
+            // holds on the last one so the panel still reads as finished work.
+            const active = stages.find(s => s.status === 'active')
+                        || stages.find(s => s.status === 'failed');
+            const done = !active;
+            const featured = active || stages[stages.length - 1];
+            const index = stages.indexOf(featured);
+
+            const card = document.querySelector('.pipeline-card');
+            if (card) {
+                card.classList.toggle('is-done', done && featured.status === 'completed');
+                card.classList.toggle('is-failed', stages.some(s => s.status === 'failed'));
+            }
+
+            setSpotlight(featured, index, stages.length, done);
+
+            // The sweep runs whenever a slicing/scanning step is the live one.
+            const scanning = stages.some(
+                s => (s.key === 'inference' || s.key === 'slicing') && s.status === 'active');
+            if (scanning) startTileScan(); else stopTileScan();
+        }
+
+        /** Paints the spotlight card, re-animating only when the stage changes. */
+        function setSpotlight(stage, index, total, done) {
+            const el = document.getElementById('stage-spotlight');
+            if (!el || !stage) return;
+
+            const key = `${stage.key}:${done}`;
+            const moved = spotlightKey !== key;
+            spotlightKey = key;
+
+            const failed = stage.status === 'failed';
+
+            // While frames are being sliced and scanned, the close-up grid *is*
+            // this step's visual; otherwise show the step's icon.
+            const showGrid = !done && !failed && (stage.key === 'slicing' || stage.key === 'inference');
+            document.getElementById('tile-viz').style.display = showGrid ? 'flex' : 'none';
+            const iconEl = document.getElementById('spotlight-icon');
+            iconEl.style.display = showGrid ? 'none' : '';
+            iconEl.textContent = failed ? '⚠️' : (done ? '✅' : (STAGE_ICONS[stage.key] || '⚙️'));
+
+            document.getElementById('spotlight-title').textContent =
+                failed ? 'Something went wrong'
+                       : (done ? 'All done' : stage.label);
+
+            document.getElementById('spotlight-detail').textContent =
+                done && !failed
+                    ? 'Every litter pin is on the map and shared with the volunteer app. '
+                      + 'Download the agency report below, or start a new session.'
+                    : (stage.detail || '');
+
+            document.getElementById('spotlight-metric').textContent = stage.metric || '';
+
+            // The technical name rides along as a credit, not as the headline.
+            const tag = document.getElementById('spotlight-tag');
+            if (stage.tag && !done && !failed) {
+                tag.textContent = stage.tag;
+                tag.title = 'Slicing-Aided Hyper Inference — the published technique this step uses.';
+                tag.style.display = '';
+            } else {
+                tag.style.display = 'none';
+            }
+
+            document.getElementById('spotlight-step').textContent =
+                done ? '' : `Step ${index + 1} of ${total}`;
+
+            if (moved) {
+                el.classList.remove('advancing');
+                void el.offsetWidth;   // restart the CSS animation
+                el.classList.add('advancing');
+            }
+        }
+
+        /** Updates the live throughput counters above the stage flow. */
+        function updatePipelineStats(sahi) {
+            if (!sahi) return;
+            const set = (id, value) => {
+                const el = document.getElementById(id);
+                if (el && el.textContent !== String(value)) el.textContent = value;
+            };
+
+            // On an accelerator the device is the bottleneck, so show what is
+            // actually doing the work rather than a misleading core count.
+            const deviceName = { mps: 'MPS GPU', cuda: 'CUDA GPU', cpu: 'CPU' }[sahi.device] || 'CPU';
+            set('pstat-cores', `${sahi.workers}× ${deviceName}`);
+            const wrap = document.getElementById('pstat-compute-wrap');
+            if (wrap) {
+                wrap.title = sahi.device === 'cpu'
+                    ? `${sahi.workers} worker processes across ${sahi.cpu_cores} CPU cores, one thread each.`
+                    : `${sahi.workers} worker processes feeding the ${deviceName}. ` +
+                      `${sahi.cpu_cores} CPU cores available; the accelerator is the bottleneck, ` +
+                      `so extra processes would only add contention.`;
+            }
+            // Name the slicing backend explicitly. The built-in slicer is a
+            // fallback that produces different merges from the tuned SAHI path, so
+            // it must never be mistaken for it.
+            const badge = document.getElementById('sahi-backend-badge');
+            if (badge && sahi.backend) {
+                const isSahi = sahi.backend === 'sahi';
+                const text = isSahi ? '⬢ SAHI LIB' : '⚠ BUILT-IN SLICER';
+                if (badge.textContent !== text) badge.textContent = text;
+                badge.classList.toggle('fallback', !isSahi);
+                badge.title = sahi.backend_label || '';
+            }
+
+            set('pstat-tiles', sahi.enabled ? sahi.tiles_per_frame : 'off');
+            set('pstat-inferred', (sahi.tiles_processed || 0).toLocaleString());
+            set('pstat-fps', (sahi.frames_per_second || 0).toFixed(2));
+            set('pstat-merged', sahi.merged_detections || 0);
+
+            // Rebuild whenever the backend's real tile count differs from what is
+            // drawn. The pre-submit grid is only an estimate against a 4K frame, so
+            // a 1080p upload would otherwise animate 32 tiles beside a "8 tiles /
+            // frame" stat. `renderedTiles` is tracked separately from the cell count
+            // because the grid pads to a full rectangle.
+            if (sahi.tiles_per_frame && sahi.tiles_per_frame !== renderedTiles) {
+                buildTileGrid(sahi.tiles_per_frame);
+            }
+        }
+
+        // ===================== Government agency export =====================
+
+        /** Refreshes the export preview counts for the current mission. */
+        async function refreshExportSummary(fallbackCount) {
+            if (!currentTaskId) return;
+            try {
+                const res = await fetch(`/api/export/summary?mission_id=${encodeURIComponent(currentTaskId)}`);
+                if (!res.ok) return;
+                const s = await res.json();
+                // Only overwrite with values the endpoint actually returned, so a
+                // partial or unexpected response cannot blank out a real count.
+                if (Number.isFinite(s.total_detections)) {
+                    document.getElementById('export-total').textContent = s.total_detections;
+                }
+                if (Number.isFinite(s.outstanding)) {
+                    document.getElementById('export-outstanding').textContent = s.outstanding;
+                }
+                if (Number.isFinite(s.average_confidence)) {
+                    document.getElementById('export-confidence').textContent =
+                        `${(s.average_confidence * 100).toFixed(0)}%`;
+                }
+            } catch (err) {
+                // A failed preview must not disturb the live monitor.
+                console.warn('Export summary unavailable:', err);
+                if (Number.isFinite(fallbackCount)) {
+                    document.getElementById('export-total').textContent = fallbackCount;
+                }
+            }
+        }
+
+        function markExportReady(ready) {
+            const badge = document.getElementById('export-ready-badge');
+            if (!badge) return;
+            badge.textContent = ready ? 'Ready' : 'Pending';
+            badge.classList.toggle('ready', ready);
+        }
+
+        /**
+         * Downloads an evidence export.
+         *
+         * Fetched as a blob rather than navigated to, so a backend error surfaces
+         * as an inline message instead of replacing the dashboard with a JSON page.
+         */
+        async function downloadExport(format) {
+            const status = document.getElementById('export-status');
+            if (!currentTaskId) {
+                status.className = 'export-status error';
+                status.textContent = 'Run a survey first.';
+                return;
+            }
+
+            status.className = 'export-status';
+            status.textContent = `Building ${format.toUpperCase()} package...`;
+
+            try {
+                const res = await fetch(`/api/export/${format}?mission_id=${encodeURIComponent(currentTaskId)}`);
+                if (!res.ok) {
+                    let detail = `Export failed (HTTP ${res.status})`;
+                    try {
+                        const body = await res.json();
+                        if (body.detail) detail = body.detail;
+                    } catch (_) { /* non-JSON error body */ }
+                    status.className = 'export-status error';
+                    status.textContent = detail;
+                    return;
+                }
+
+                const blob = await res.blob();
+                const disposition = res.headers.get('Content-Disposition') || '';
+                const match = disposition.match(/filename="?([^"]+)"?/);
+                const filename = match ? match[1] : `beach_litter_survey.${format}`;
+
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = filename;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                URL.revokeObjectURL(url);
+
+                status.className = 'export-status success';
+                status.textContent = `✓ Downloaded ${filename}`;
+                addTerminalLine(`📤 Agency export generated: ${filename}`, 'success');
+            } catch (err) {
+                status.className = 'export-status error';
+                status.textContent = `Export failed: ${err.message}`;
+            }
+        }
+
         async function pollTaskStatus() {
             if (!currentTaskId) return;
 
@@ -1875,9 +3900,33 @@
                 if (data.current_time_s !== undefined && data.duration_s !== undefined) {
                     progressText += ` (${data.current_time_s.toFixed(1)}s / ${data.duration_s.toFixed(1)}s)`;
                 }
+                // Flight height, as soon as telemetry has been parsed.
+                if (data.altitude && data.altitude.avg) {
+                    const a = data.altitude;
+                    const el = document.getElementById('pstat-altitude');
+                    const txt = Math.round(a.avg) + 'm';
+                    if (el.textContent !== txt) el.textContent = txt;
+                    document.getElementById('alt-figure').title =
+                        `${a.min}–${a.max} m ${a.source}. This is what makes a bottle only a few ` +
+                        `pixels wide, and why the frame is scanned in close-ups.`;
+                }
+
                 document.getElementById('task-percent-label').textContent = progressText;
                 document.getElementById('task-progress-fill').style.width = `${data.progress_percent}%`;
                 document.getElementById('task-status-label').textContent = `Status: ${data.status.toUpperCase()}`;
+
+                // Animated pipeline + live SAHI throughput
+                renderPipeline(data.stages);
+                updatePipelineStats(data.sahi);
+
+                // Flash the tile grid whenever new litter appears since the last poll
+                const detectionTotal = (data.detections || []).length;
+                if (detectionTotal > lastDetectionTotal) {
+                    for (let i = 0; i < Math.min(detectionTotal - lastDetectionTotal, 4); i++) {
+                        setTimeout(flashTileHit, i * 120);
+                    }
+                }
+                lastDetectionTotal = detectionTotal;
 
                 // Update Terminal logs
                 const terminal = document.getElementById('terminal-logs');
@@ -1894,6 +3943,8 @@
                 const caret = document.createElement('span');
                 caret.className = 'caret';
                 terminal.appendChild(caret);
+                terminal.scrollTop = terminal.scrollHeight;
+                setLatestLogLine(data.console_logs[data.console_logs.length - 1]);
                  // Update Detections grid
                 const detectionsBox = document.getElementById('detections-box');
                 const badge = document.getElementById('detections-count-badge');
@@ -1924,7 +3975,16 @@
                     
                     const img = document.createElement('img');
                     img.className = 'detection-thumb';
-                    img.src = cluster.image_url;
+                    img.src = cluster.image_url || MISSING_CROP;
+                    img.alt = `${cluster.class} detection crop`;
+                    // A crop can be missing if storage was unreachable when the pin
+                    // was written. Degrade to a placeholder rather than a broken icon.
+                    img.onerror = () => {
+                        if (img.src !== MISSING_CROP) img.src = MISSING_CROP;
+                    };
+                    // A bottle from 32m up is a handful of pixels — let people open
+                    // the crop full size to judge it rather than squint at a card.
+                    img.onclick = () => openCropViewer(cluster);
                     
                     const info = document.createElement('div');
                     info.className = 'detection-info';
@@ -1981,7 +4041,7 @@
                     // Show the cropped image thumbnail outlined by the confidence badge color.
                     const customIcon = L.divIcon({
                         className: 'custom-div-icon',
-                        html: `<div style="position: relative; width: 44px; height: 44px; border-radius: 6px; border: 2.5px solid ${confColor}; overflow: hidden; box-shadow: 0 0 10px rgba(0,0,0,0.6); background-color: #06080c;"><img src="${cluster.image_url}" style="width: 100%; height: 100%; object-fit: cover;" /></div>`,
+                        html: `<div style="position: relative; width: 44px; height: 44px; border-radius: 6px; border: 2.5px solid ${confColor}; overflow: hidden; box-shadow: 0 0 10px rgba(0,0,0,0.6); background-color: #06080c;"><img src="${cluster.image_url || MISSING_CROP}" onerror="this.src='${MISSING_CROP}'" style="width: 100%; height: 100%; object-fit: cover;" /></div>`,
                         iconSize: [44, 44],
                         iconAnchor: [22, 22]
                     });
@@ -2012,18 +4072,39 @@
                     }
                 }
 
-                // Zoom in and fly to the latest new cluster point if one is found
-                if (latestNewCluster) {
-                    map.flyTo([latestNewCluster.avg_latitude, latestNewCluster.avg_longitude], 15, {
-                        animate: true,
-                        duration: 1.2
-                    });
-                } else if (data.flight_path && data.flight_path.length > 0 && flightPathLine.getLatLngs().length === 0) {
-                    // Fit bounds to flight path initially once loaded so map centers on flight zone
-                    const bounds = flightPathLine.getBounds();
-                    if (bounds.isValid()) {
-                        map.fitBounds(bounds, {padding: [40, 40]});
+                // Frame the survey area as soon as telemetry arrives.
+                //
+                // This used to be gated on `flightPathLine.getLatLngs().length === 0`,
+                // which setLatLngs above had just made false — so it never ran and the
+                // map sat at city zoom until the first detection happened to fly it
+                // somewhere. Framing once, on the first path we receive, is the intent.
+                // Camera moves are cosmetic, so they are isolated: Leaflet throws
+                // "Invalid LatLng (NaN, NaN)" if asked to fit bounds into a
+                // container smaller than the padding, and an exception here used
+                // to abort the whole poll — taking the completion handling, and
+                // therefore the agency export, down with it.
+                try {
+                    const mapSize = map.getSize();
+                    const roomToPad = mapSize.x > 160 && mapSize.y > 160;
+                    const pad = roomToPad ? [50, 50] : [0, 0];
+
+                    if (!hasFramedFlightPath && data.flight_path && data.flight_path.length > 0) {
+                        const bounds = flightPathLine.getBounds();
+                        if (bounds.isValid() && mapSize.x > 0 && mapSize.y > 0) {
+                            map.fitBounds(bounds, {padding: pad, maxZoom: 18});
+                            hasFramedFlightPath = true;
+                        }
                     }
+
+                    // Then follow new finds, but never zoom out past the framing.
+                    if (latestNewCluster) {
+                        const z = map.getZoom();
+                        map.flyTo([latestNewCluster.avg_latitude, latestNewCluster.avg_longitude],
+                                  Number.isFinite(z) ? Math.max(z, 18) : 18,
+                                  { animate: true, duration: 1.2 });
+                    }
+                } catch (mapErr) {
+                    console.warn('Map framing skipped:', mapErr);
                 }
 
                 // Update Pin Path line mapping dynamically (detections connections)
@@ -2040,7 +4121,24 @@
                 if (data.status === 'completed' || data.status === 'failed') {
                     clearInterval(pollInterval);
                     document.getElementById('new-session-btn').style.display = 'inline-block';
-                    
+                    stopTileScan();
+
+                    // The evidence package is only offered once a survey has
+                    // finished, and it arrives as a dialog so the result lands as
+                    // a moment rather than sitting in a side panel showing zeros.
+                    if (data.status === 'completed') {
+                        markExportReady(true);
+                        // Seed from what we already have, then let the summary
+                        // endpoint refine it. Awaiting matters: an unawaited
+                        // refresh used to resolve *after* this and clobber the
+                        // count with whatever it had.
+                        const pinCount = data.clusters ? data.clusters.length : 0;
+                        document.getElementById('export-total').textContent = pinCount;
+                        document.getElementById('export-outstanding').textContent = pinCount;
+                        await refreshExportSummary(pinCount);
+                        setTimeout(openExportModal, 900);
+                    }
+
                     // Pause drone video playback when finished
                     const videoEl = document.getElementById('drone-map-video');
                     if (videoEl) {
@@ -2066,6 +4164,15 @@
             }
         }
 
+        /** Mirrors the newest log line into the collapsed header. */
+        function setLatestLogLine(line) {
+            const el = document.getElementById('terminal-latest');
+            if (!el || !line) return;
+            // Drop the leading "[HH:MM:SS] " stamp — no room for it in one row.
+            const text = String(line).replace(/^\[\d{2}:\d{2}:\d{2}\]\s*/, '');
+            if (el.textContent !== text) el.textContent = text;
+        }
+
         // Log appending utility
         function addTerminalLine(text, style = '') {
             const terminal = document.getElementById('terminal-logs');
@@ -2085,9 +4192,42 @@
             const caret = document.createElement('span');
             caret.className = 'caret';
             terminal.appendChild(caret);
-            
+
             terminal.scrollTop = terminal.scrollHeight;
+            setLatestLogLine(line.textContent);
         }
+
+        // ===================== Initial UI state =====================
+        (function initSahiControls() {
+            // Cap the core slider at what this machine actually has, so the operator
+            // cannot request more workers than there are cores to run them on.
+            const cores = navigator.hardwareConcurrency || 8;
+            const slider = document.getElementById('workers-range');
+            slider.max = cores;
+
+            // The core count belongs in the tooltip now that the standing hint text
+            // has been folded into hover-for-detail.
+            const workersInfo = slider.closest('.form-group').querySelector('.info-dot');
+            if (workersInfo) {
+                workersInfo.title =
+                    `${cores} logical cores detected. Auto picks the fastest setup for this machine — ` +
+                    `every core when there is no GPU, or a small pool feeding the GPU when there is one. ` +
+                    `Override only if you want to cap the load.`;
+            }
+
+            workersChanged(slider.value);
+
+
+            // Autoplay the sample preview muted. Browsers permit muted autoplay;
+            // if one refuses, the poster frame still shows the footage.
+            const preview = document.getElementById('sample-preview');
+            if (preview) {
+                preview.play().catch(() => {});
+            }
+
+            updateSahiEstimate();
+            buildTileGrid(sahiTilesEstimate());
+        })();
     </script>
 </body>
 </html>

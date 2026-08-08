@@ -120,7 +120,18 @@ class TelemetryInterpolator:
             data_line = " ".join(lines[2:])
             lat_m = re.search(r'(?:latitude|lat)\s*[:\s]\s*([-\d.]+)', data_line, re.IGNORECASE)
             lon_m = re.search(r'(?:longitude|longtitude|lon|lng)\s*[:\s]\s*([-\d.]+)', data_line, re.IGNORECASE)
-            alt_m = re.search(r'(?:altitude|alt|height)\s*[:\s]\s*([-\d.]+)', data_line, re.IGNORECASE)
+            # DJI SRT carries two altitudes: `rel_alt` (above the takeoff point)
+            # and `abs_alt` (above mean sea level). A bare `alt` pattern matches
+            # the "alt" inside "rel_alt" first, which silently picked height above
+            # takeoff — on this footage 2-4m instead of ~32m, making every
+            # detection land ~10x too close to the drone. Capture both and let
+            # pick_altitude decide.
+            rel_alt_m = re.search(r'rel_alt\s*[:\s]\s*([-\d.]+)', data_line, re.IGNORECASE)
+            abs_alt_m = re.search(r'abs_alt\s*[:\s]\s*([-\d.]+)', data_line, re.IGNORECASE)
+            alt_m = re.search(r'(?:altitude|height)\s*[:\s]\s*([-\d.]+)', data_line, re.IGNORECASE)
+            if not (alt_m or rel_alt_m or abs_alt_m):
+                # Last resort for logs using a bare "alt:" field.
+                alt_m = re.search(r'(?<![a-z_])alt\s*[:\s]\s*([-\d.]+)', data_line, re.IGNORECASE)
             heading_m = re.search(r'(?:heading|bearing|compass|compass_heading)\s*[:\s]\s*([-\d.]+)', data_line, re.IGNORECASE)
             
             lat, lon, alt, heading = None, None, 0.0, 0.0
@@ -147,16 +158,22 @@ class TelemetryInterpolator:
                     alt = val3
                     
             if lat is not None and lon is not None:
+                rel_alt = float(rel_alt_m.group(1)) if rel_alt_m else None
+                abs_alt = float(abs_alt_m.group(1)) if abs_alt_m else None
                 if alt_m:
                     alt = float(alt_m.group(1))
+                elif rel_alt is not None or abs_alt is not None:
+                    alt = pick_altitude(rel_alt, abs_alt)
                 if heading_m:
                     heading = float(heading_m.group(1))
-                    
+
                 records.append({
                     'timestamp_ms': timestamp_ms,
                     'latitude': lat,
                     'longitude': lon,
                     'altitude': alt,
+                    'rel_altitude': rel_alt if rel_alt is not None else alt,
+                    'abs_altitude': abs_alt if abs_alt is not None else alt,
                     'heading': heading
                 })
                 
@@ -201,6 +218,43 @@ class TelemetryInterpolator:
             "altitude": float(alt_interp),
             "heading": float(heading_interp)
         }
+
+# Below this, a "height above takeoff" reading cannot plausibly have produced
+# wide-area aerial survey footage — at 4m a 59-degree lens covers about 7m of
+# ground, which is a doorstep, not a beach.
+IMPLAUSIBLE_SURVEY_ALTITUDE_M = 10.0
+
+
+def pick_altitude(rel_alt, abs_alt, source: str = None) -> float:
+    """
+    Chooses the height to georeference against, given DJI's two altitudes.
+
+    `rel_alt` is height above the takeoff point and is usually what you want.
+    `abs_alt` is height above mean sea level, which equals height above ground
+    only where the ground is at sea level — true for a beach.
+
+    `source` may be 'rel', 'abs' or 'auto' (default, also settable via the
+    TELEMETRY_ALTITUDE_SOURCE env var). 'auto' prefers rel_alt but falls back to
+    abs_alt when rel_alt is too small to have produced survey footage, which is
+    what happens when a flight is launched from a height above the survey area.
+    """
+    if source is None:
+        source = os.getenv("TELEMETRY_ALTITUDE_SOURCE", "auto").lower()
+
+    if source == "rel" and rel_alt is not None:
+        return rel_alt
+    if source == "abs" and abs_alt is not None:
+        return abs_alt
+
+    if rel_alt is None:
+        return abs_alt if abs_alt is not None else 0.0
+    if abs_alt is None:
+        return rel_alt
+
+    if rel_alt < IMPLAUSIBLE_SURVEY_ALTITUDE_M <= abs_alt:
+        return abs_alt
+    return rel_alt
+
 
 def geodesic_destination(lat: float, lon: float, distance_meters: float, bearing_degrees: float) -> tuple:
     """

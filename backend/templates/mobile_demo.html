@@ -1,0 +1,972 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="theme-color" content="#FBF4E9">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <title>Coastal Patrol — Live Litter Detection</title>
+
+    <!-- Everything is served from this origin: no CDN, no Google Fonts, no icon
+         font. A venue uplink or a filtered network cannot break the page. -->
+    <link href="/static/vendor/fonts_story.css" rel="stylesheet">
+    <link rel="stylesheet" href="/static/vendor/leaflet.css"/>
+    <link rel="stylesheet" href="/static/vendor/MarkerCluster.css"/>
+    <style>
+      :root{
+        --cream:#FBF4E9;--cream-deep:#F4E9D6;--surface:#FFFFFF;--surface-2:#FEFCF8;
+        --ink:#2B2420;--ink-2:#6B5F54;--ink-3:#9A8E80;--line:#E9DDCB;--line-strong:#DBCBB2;
+        --teal:#128577;--teal-deep:#0B5F55;--teal-soft:#DFF0EC;
+        --amber:#E08A2B;--amber-deep:#B86A14;--amber-soft:#FBEAD0;--amber-line:#F0D4A8;
+        --violet:#6B4E9E;--violet-deep:#4E3678;--violet-soft:#ECE4F7;--violet-line:#D8C8EE;
+        --coral:#D6446A;--coral-deep:#B12A50;--coral-soft:#FBE2E9;--coral-line:#F3C6D2;
+        --font-display:'Bricolage Grotesque',sans-serif;--font-ui:'Plus Jakarta Sans',sans-serif;
+        --sh-1:0 1px 2px rgba(74,54,30,.06),0 1px 1px rgba(74,54,30,.04);
+        --sh-2:0 4px 12px rgba(74,54,30,.08),0 1px 3px rgba(74,54,30,.05);
+        --sh-3:0 10px 28px rgba(74,54,30,.12),0 3px 8px rgba(74,54,30,.06);
+        --sh-phone:0 24px 60px rgba(43,36,32,.22),0 8px 20px rgba(43,36,32,.12);
+      }
+      *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+      html,body{height:100%;overflow:hidden}
+      body{background:var(--cream-deep);font-family:var(--font-ui);color:var(--ink);overscroll-behavior:none}
+
+      /* On a phone the app is the whole screen. On a desktop — presenting, or
+         checking it from the dashboard — it sits in a device frame instead of
+         stretching a 360px layout across a monitor. */
+      .stage-wrap{min-height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:24px 20px}
+      .stage-cap{font:600 13px var(--font-ui);color:var(--ink-2);text-align:center;max-width:420px}
+      .phone{width:380px;background:#2B2723;border-radius:42px;padding:11px;box-shadow:var(--sh-phone)}
+      .p-screen{height:min(760px,calc(100vh - 120px));border-radius:32px;overflow:hidden;background:var(--cream);display:flex;flex-direction:column;position:relative}
+      .notch{position:absolute;top:11px;left:50%;transform:translateX(-50%);width:110px;height:28px;background:#2B2723;border-radius:99px;z-index:30}
+
+      @media (max-width:760px){
+        /* 100vh on a phone is the viewport *without* the browser chrome, so a
+           full-height layout runs under the address bar and the last rows become
+           unreachable — the page cannot scroll to them because the body does not
+           scroll. dvh tracks the actually-visible height; vh stays as a fallback
+           for browsers that lack it. */
+        .stage-wrap{padding:0;gap:0;min-height:100vh;min-height:100dvh}
+        .stage-cap{display:none}
+        .phone{width:100%;height:100vh;height:100dvh;border-radius:0;padding:0;box-shadow:none;background:var(--cream)}
+        .p-screen{height:100vh;height:100dvh;border-radius:0}
+        .notch{display:none}
+        .dots{top:calc(env(safe-area-inset-top) + 12px)!important}
+        .replay-topbar,.map-place,.map-legend{top:calc(env(safe-area-inset-top) + 34px)!important}
+        .finds-head{padding-top:calc(env(safe-area-inset-top) + 46px)!important}
+      }
+
+      /* The bar still reads as a 3px progress indicator, but each one is a 26px
+         tall button — a 3px tap target is not hittable with a thumb, which left
+         no practical way back from the map. */
+      .dots{position:absolute;top:9px;left:16px;right:16px;display:flex;gap:6px;z-index:1002}
+      .dot{flex:1;height:26px;background:none;border:none;padding:0;cursor:pointer;display:flex;align-items:center;-webkit-tap-highlight-color:transparent}
+      .dot::after{content:'';display:block;width:100%;height:3px;border-radius:2px;background:rgba(43,36,32,.18);transition:background .2s,height .2s}
+      .dot.active::after{background:var(--teal);height:4px}
+
+      /* Tap either edge to move between views. Kept clear of the sheet and of
+         the map, where a stray tap would fight panning. */
+      .tapzone{position:absolute;top:60px;bottom:0;width:22%;z-index:15;cursor:pointer;background:none;border:none}
+      .tapzone.left{left:0} .tapzone.right{right:0}
+      .map-area .tapzone{bottom:auto;height:120px;z-index:1000}
+
+      .ic{width:1em;height:1em;display:inline-block;vertical-align:-.125em;fill:currentColor}
+      .lane-teal{color:var(--teal)} .lane-amber{color:var(--amber-deep)}
+      .lane-violet{color:var(--violet)} .lane-coral{color:var(--coral)} .lane-ink{color:var(--ink-3)}
+
+      /* ---------- Replay ---------- */
+      .replay-video{position:absolute;inset:0;background:repeating-linear-gradient(135deg,var(--cream-deep) 0 14px,var(--surface-2) 14px 28px);display:flex;flex-direction:column;overflow:hidden}
+      .replay-video video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+      /* Two stacked layers so a new analysed frame can fade in over the previous
+         one — swapping a single <img> src flashes the background while the next
+         image decodes. */
+      /* `contain`, not `cover`: the whole analysed frame has to stay on screen.
+         Cropping a 16:9 frame to a portrait phone throws away three quarters of
+         the width — and with it most of the boxes the viewer came to see. */
+      /* Sit the frame in the upper third rather than dead centre: the running
+         count and the ticker own the lower half, so centring leaves a band of
+         dead black above the image and crowds the text below it. */
+      .shot{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;object-position:center 34%;z-index:5;opacity:0;transition:opacity .28s ease}
+      .shot.on{opacity:1}
+      /* Letterboxing reads as deliberate against a dark field rather than as a
+         layout mistake against the cream. */
+      .replay-video.shots{background:#211D1A}
+      .replay-video svg.boxes{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:6}
+      .det-box{fill:none;stroke-width:2.5;vector-effect:non-scaling-stroke}
+      .det-box.fresh{animation:boxpop .5s ease}
+      @keyframes boxpop{0%{stroke-width:7;opacity:.25}100%{stroke-width:2.5;opacity:1}}
+
+      .replay-topbar{position:absolute;top:44px;left:16px;right:16px;display:flex;align-items:center;gap:9px;z-index:20}
+      .topbar-plate{display:flex;align-items:center;gap:9px;padding:7px 12px 7px 10px;border-radius:12px;background:rgba(255,255,255,.86);backdrop-filter:blur(8px);border:1px solid var(--line);box-shadow:var(--sh-1)}
+      .live-dot{width:9px;height:9px;border-radius:50%;background:var(--coral);box-shadow:0 0 0 4px var(--coral-soft);flex-shrink:0;animation:pulse 1.4s ease-in-out infinite}
+      .live-dot.idle{background:var(--ink-3);box-shadow:0 0 0 4px var(--cream-deep);animation:none}
+      @keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(.8)}}
+      .replay-title{font:800 13px var(--font-display);color:var(--ink)}
+      .replay-loc{font:600 10px var(--font-ui);color:var(--ink-2)}
+      .alt-chip{margin-left:auto;padding:6px 10px;border-radius:10px;background:var(--teal);color:#fff;font:800 11px var(--font-ui);box-shadow:var(--sh-1);white-space:nowrap}
+
+      .center-icon{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--ink-3);font-size:34px;z-index:2}
+      .watermark{position:absolute;left:18px;bottom:196px;font:800 92px var(--font-display);color:var(--coral-soft);line-height:1;z-index:5;pointer-events:none}
+      .watermark-label{position:absolute;left:20px;bottom:176px;font:800 10.5px var(--font-ui);letter-spacing:.12em;text-transform:uppercase;color:var(--coral-deep);z-index:5;pointer-events:none}
+      .sheet-gradient{position:absolute;left:0;right:0;bottom:0;padding:16px;padding-bottom:calc(16px + env(safe-area-inset-bottom));background:linear-gradient(to top,var(--cream) 60%,rgba(251,244,233,.75) 88%,transparent);z-index:10}
+
+      .hero{display:flex;align-items:center;gap:11px;padding:11px;border-radius:18px;background:var(--coral-soft);border:1px solid var(--coral-line);box-shadow:inset 0 0 0 2px var(--coral-line),var(--sh-1);cursor:pointer;width:100%;text-align:left;font-family:inherit}
+      .hero.pop{animation:heropop .5s cubic-bezier(.4,0,.2,1)}
+      @keyframes heropop{0%{transform:scale(.97)}60%{transform:scale(1.01)}100%{transform:scale(1)}}
+      .hero-icon{width:52px;height:52px;border-radius:13px;background:var(--surface);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:22px;overflow:hidden}
+      .hero-icon img{width:100%;height:100%;object-fit:cover;display:block}
+      .hero-body{flex:1;min-width:0}
+      .hero-kicker{display:block;font:800 8.5px var(--font-ui);letter-spacing:.11em;color:var(--coral-deep);text-transform:uppercase}
+      .hero-title{font:800 16px var(--font-display);margin:2px 0 1px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+      .hero-meta{font:9.5px var(--font-ui);color:var(--ink-2)}
+      .hero-conf{font:800 18px var(--font-display);color:var(--coral-deep);flex-shrink:0}
+      .hero-placeholder{padding:18px;text-align:center;color:var(--ink-3);font:600 12px var(--font-ui)}
+
+      .ticker{display:flex;gap:7px;margin-top:11px;overflow-x:auto;scrollbar-width:none}
+      .ticker::-webkit-scrollbar{display:none}
+      .tcard{width:52px;height:52px;border-radius:12px;flex-shrink:0;background:var(--surface);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:18px;cursor:pointer;overflow:hidden;padding:0;animation:slidein .4s cubic-bezier(.4,0,.2,1)}
+      @keyframes slidein{from{opacity:0;transform:translateX(-14px) scale(.9)}to{opacity:1;transform:none}}
+      .tcard img{width:100%;height:100%;object-fit:cover;display:block}
+
+      .complete-card{position:absolute;left:16px;right:16px;bottom:200px;z-index:25;display:flex;flex-direction:column;align-items:center;gap:4px;padding:18px 16px 14px;border-radius:18px;text-align:center;background:var(--surface);border:1px solid var(--teal-soft);box-shadow:var(--sh-3);opacity:0;pointer-events:none;transform:translateY(10px);transition:opacity .3s,transform .3s}
+      .complete-card.show{opacity:1;pointer-events:auto;transform:none}
+
+      .starting-card{position:absolute;left:16px;right:16px;bottom:200px;z-index:26;display:flex;flex-direction:column;align-items:center;gap:4px;padding:18px 16px 14px;border-radius:18px;text-align:center;background:var(--surface);border:1px solid var(--amber-line);box-shadow:var(--sh-3);opacity:0;pointer-events:none;transform:translateY(10px);transition:opacity .3s,transform .3s}
+      .starting-card.show{opacity:1;transform:none}
+      .starting-card b{font:800 15px var(--font-display);color:var(--ink)}
+      .starting-sub{font:600 11px var(--font-ui);color:var(--ink-2)}
+      .starting-pip{width:11px;height:11px;border-radius:50%;background:var(--amber);box-shadow:0 0 0 5px var(--amber-soft);margin-bottom:4px;animation:pulse 1.2s ease-in-out infinite}
+      .complete-tick{font-size:26px;color:var(--teal)}
+      .complete-card b{font:800 15px var(--font-display);color:var(--ink)}
+      .complete-sub{font:600 11px var(--font-ui);color:var(--ink-2)}
+      .complete-sub i{font-style:normal;font-family:var(--font-display);font-weight:800;color:var(--coral-deep)}
+
+      /* ---------- Map ---------- */
+      /* An explicit, labelled way back to the footage. The edge tap zones and
+         the dot bar are both easy to miss, and on the map a stray tap reads as
+         a pan, so the return trip needs a real button. */
+      .backbtn{position:absolute;left:16px;bottom:22px;z-index:1500;display:flex;align-items:center;gap:7px;padding:11px 15px 11px 12px;border-radius:999px;background:var(--surface);border:1px solid var(--line);box-shadow:var(--sh-3);font:800 12px var(--font-ui);color:var(--ink);cursor:pointer;-webkit-tap-highlight-color:transparent}
+      .backbtn svg{width:16px;height:16px;fill:var(--teal);flex-shrink:0}
+      .backbtn:active{transform:scale(.96)}
+      @supports (padding:env(safe-area-inset-bottom)){
+        .backbtn{bottom:calc(env(safe-area-inset-bottom) + 22px)}
+      }
+
+      .map-area{position:absolute;inset:0;background:var(--cream-deep)}
+      #map{position:absolute;inset:0;background:var(--cream-deep)}
+      .map-place{position:absolute;top:58px;left:16px;z-index:1001;display:flex;align-items:center;gap:8px;padding:8px 12px 8px 10px;border-radius:12px;background:var(--surface);border:1px solid var(--line);box-shadow:var(--sh-2)}
+      .map-place b{display:block;font:800 12px var(--font-display);color:var(--ink)}
+      .map-place span{font:700 9.5px var(--font-ui);color:var(--teal-deep)}
+      .map-legend{position:absolute;top:58px;right:16px;z-index:1001;padding:8px 12px;border-radius:12px;background:var(--surface);border:1px solid var(--line);box-shadow:var(--sh-2);text-align:right}
+      .map-legend b{display:block;font:800 12px var(--font-display);color:var(--ink)}
+      .map-legend span{font:600 9.5px var(--font-ui);color:var(--ink-2)}
+
+      .pin-wrap{background:none;border:none}
+      .pin{width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;background:var(--surface);border:2px solid var(--teal);box-shadow:var(--sh-2);cursor:pointer;overflow:hidden}
+      .pin img{width:100%;height:100%;object-fit:cover;display:block}
+      .pin.cleaned{opacity:.45;border-color:var(--ink-3)}
+      .cluster-wrap{background:none;border:none}
+      .cluster{width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;font:800 13px var(--font-display);color:#fff;background:var(--teal);border:2px solid var(--surface);box-shadow:var(--sh-2)}
+      .leaflet-control-attribution{background:rgba(255,255,255,.8)!important;font-size:8px!important;color:var(--ink-3)!important}
+      .leaflet-bar a{background:var(--surface)!important;color:var(--ink)!important;border-color:var(--line)!important}
+
+      /* ---------- Finds ---------- */
+      .finds-page{position:absolute;inset:0;background:var(--cream);display:flex;flex-direction:column}
+      .finds-head{padding:58px 16px 10px;flex-shrink:0}
+      .finds-head h2{font:800 20px var(--font-display);margin:0 0 2px;color:var(--ink)}
+      .finds-head span{font:600 11px var(--font-ui);color:var(--ink-2)}
+      .chips{display:flex;gap:7px;overflow-x:auto;padding:10px 16px;flex-shrink:0;scrollbar-width:none}
+      .chips::-webkit-scrollbar{display:none}
+      .chip{flex-shrink:0;font:700 11.5px var(--font-ui);padding:7px 13px;border-radius:999px;cursor:pointer;white-space:nowrap;border:1.5px solid transparent;font-family:var(--font-ui)}
+      .chip.lane-teal{background:var(--teal-soft);color:var(--teal-deep)} .chip.lane-teal.active{background:var(--teal);color:#fff}
+      .chip.lane-amber{background:var(--amber-soft);color:var(--amber-deep)} .chip.lane-amber.active{background:var(--amber);color:#fff}
+      .chip.lane-violet{background:var(--violet-soft);color:var(--violet-deep)} .chip.lane-violet.active{background:var(--violet);color:#fff}
+      .chip.lane-coral{background:var(--coral-soft);color:var(--coral-deep)} .chip.lane-coral.active{background:var(--coral);color:#fff}
+      .chip.lane-ink{background:var(--cream-deep);color:var(--ink-2)} .chip.lane-ink.active{background:var(--ink-2);color:#fff}
+      .finds-grid{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;display:grid;grid-template-columns:repeat(2,1fr);gap:10px;padding:6px 16px calc(84px + env(safe-area-inset-bottom))}
+      .find-card{border-radius:14px;background:var(--surface);border:1px solid var(--line);box-shadow:var(--sh-1);padding:12px;cursor:pointer;display:flex;flex-direction:column;gap:6px;text-align:left;font-family:inherit}
+      .fc-icon{width:100%;aspect-ratio:1;border-radius:10px;background:var(--cream-deep);display:flex;align-items:center;justify-content:center;font-size:17px;overflow:hidden}
+      .fc-icon img{width:100%;height:100%;object-fit:cover;display:block}
+      .fc-class{font:700 12.5px var(--font-ui);color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+      .fc-meta{font:600 10px var(--font-ui);color:var(--ink-2)}
+
+      /* ---------- Sheet ---------- */
+      .backdrop{position:absolute;inset:0;background:rgba(43,36,32,.4);z-index:1400;opacity:0;pointer-events:none;transition:opacity .2s;border:none}
+      .backdrop.open{opacity:1;pointer-events:auto}
+      .sheet{position:absolute;left:0;right:0;bottom:0;z-index:1500;background:var(--surface);border-radius:22px 22px 0 0;padding:10px 20px calc(28px + env(safe-area-inset-bottom));box-shadow:var(--sh-3);transform:translateY(105%);transition:transform .28s cubic-bezier(.4,0,.2,1);max-height:88%;overflow-y:auto}
+      .sheet.open{transform:translateY(0)}
+      .grip{width:36px;height:4px;border-radius:2px;background:var(--line-strong);margin:0 auto 14px}
+      .sheet-icon{width:100%;height:190px;border-radius:16px;background:var(--cream-deep);display:flex;align-items:center;justify-content:center;font-size:28px;margin-bottom:12px;overflow:hidden}
+      .sheet-icon img{width:100%;height:100%;object-fit:cover;display:block;image-rendering:-webkit-optimize-contrast}
+      .sheet h3{font:800 20px var(--font-display);margin:0 0 8px;color:var(--ink)}
+      .badges{display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap}
+      .badge{font:700 11px var(--font-ui);padding:4px 9px;border-radius:999px}
+      .badge.conf-good{background:var(--teal-soft);color:var(--teal-deep)}
+      .badge.conf-ok{background:var(--amber-soft);color:var(--amber-deep)}
+      .badge.conf-low{background:var(--coral-soft);color:var(--coral-deep)}
+      .badge.neutral{background:var(--cream-deep);color:var(--ink-2)}
+      .coords{font:600 12px ui-monospace,Menlo,monospace;color:var(--ink-2);margin-bottom:14px}
+      .btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:14px;border-radius:14px;font:700 14px var(--font-ui);cursor:pointer;border:none;margin-bottom:9px;text-decoration:none;box-sizing:border-box;font-family:var(--font-ui)}
+      .btn.primary{background:var(--teal);color:#fff}
+      .btn.done{background:var(--teal-soft);color:var(--teal-deep)}
+      .btn.ghost{background:var(--cream-deep);color:var(--ink-2)}
+
+      .loading,.errorbox{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;color:var(--ink-2);font:600 13px var(--font-ui);text-align:center;padding:30px;z-index:1600;background:var(--cream)}
+      .spinner{width:30px;height:30px;border:3px solid var(--cream-deep);border-top-color:var(--teal);border-radius:50%;animation:spin .9s linear infinite}
+      @keyframes spin{to{transform:rotate(360deg)}}
+      .errorbox{display:none}
+
+      @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+    </style>
+</head>
+<body>
+
+<!-- Icon sprite, inlined: ten glyphs at 4KB rather than 600KB of icon fonts. -->
+{{ icon_sprite | safe }}
+
+<div class="stage-wrap">
+<div class="phone"><div class="p-screen">
+  <div class="notch"></div>
+
+  <div class="dots">
+    <button class="dot active" id="dot-replay" onclick="go('replay')" aria-label="Replay"></button>
+    <button class="dot" id="dot-map" onclick="go('map')" aria-label="Map"></button>
+    <button class="dot" id="dot-finds" onclick="go('finds')" aria-label="Finds"></button>
+  </div>
+
+  <div class="loading" id="loading"><div class="spinner"></div><div>Finding the patrol…</div></div>
+  <div class="errorbox" id="errorbox"><div style="font-size:30px">📡</div><div id="error-msg"></div></div>
+
+  <!-- ===================== REPLAY ===================== -->
+  <div class="replay-video" id="view-replay">
+    <video id="video" playsinline muted preload="metadata"></video>
+    <img class="shot" id="shot-a" alt=""><img class="shot" id="shot-b" alt="">
+    <svg class="boxes" id="overlay" viewBox="0 0 100 100"></svg>
+    <button class="tapzone left" onclick="step(-1)" aria-label="Previous"></button>
+    <button class="tapzone right" onclick="step(1)" aria-label="Next"></button>
+
+    <div class="replay-topbar">
+      <div class="topbar-plate">
+        <span class="live-dot idle" id="live-dot"></span>
+        <div>
+          <div class="replay-title">Coastal Patrol</div>
+          <div class="replay-loc" id="loc-label">{{ location }}</div>
+        </div>
+      </div>
+      <span class="alt-chip" id="alt-chip" title="Height the footage was flown at">— m</span>
+    </div>
+
+    <div class="center-icon" id="center-icon"><svg class="ic"><use href="#i-video-camera"/></svg></div>
+
+    <div class="watermark" id="watermark">0</div>
+    <div class="watermark-label">Pieces found so far</div>
+
+    <!-- A new flight wipes the previous patrol's finds. Say so, rather than
+         letting the count silently drop back to zero. -->
+    <div class="starting-card" id="starting-card">
+      <span class="starting-pip"></span>
+      <b>New patrol starting</b>
+      <span class="starting-sub">A fresh flight is being analysed &middot; counts reset to zero</span>
+    </div>
+
+    <div class="complete-card" id="complete-card">
+      <span class="complete-tick"><svg class="ic"><use href="#i-check-circle"/></svg></span>
+      <b>Patrol complete</b>
+      <span class="complete-sub"><i id="complete-count">0</i> pieces of litter mapped &middot; heading to the map</span>
+    </div>
+
+    <div class="sheet-gradient">
+      <button class="hero" id="hero" style="display:none" onclick="openLatest()">
+        <div class="hero-icon" id="hero-icon"></div>
+        <div class="hero-body">
+          <span class="hero-kicker">Just spotted</span>
+          <div class="hero-title" id="hero-title">—</div>
+          <span class="hero-meta" id="hero-meta"></span>
+        </div>
+        <div class="hero-conf" id="hero-conf">—</div>
+      </button>
+      <div class="hero-placeholder" id="hero-placeholder">Scanning the beach&hellip; first find lands any second.</div>
+      <div class="ticker" id="ticker"></div>
+    </div>
+  </div>
+
+  <!-- ===================== MAP ===================== -->
+  <div class="map-area" id="view-map" style="display:none">
+    <div id="map"></div>
+    <button class="tapzone left" onclick="step(-1)" aria-label="Previous"></button>
+    <button class="tapzone right" onclick="step(1)" aria-label="Next"></button>
+    <div class="map-place">
+      <span style="font-size:20px;margin-right:2px" id="place-flag">📍</span>
+      <div><b id="place-name">—</b><span id="place-region"></span></div>
+    </div>
+    <div class="map-legend"><b id="m-remaining">0 to collect</b><span id="m-cleaned">0 cleaned</span></div>
+    <button class="backbtn" onclick="go('replay')" aria-label="Back to live footage">
+      <svg><use href="#i-video-camera"/></svg>Live view
+    </button>
+  </div>
+
+  <!-- ===================== FINDS ===================== -->
+  <div class="finds-page" id="view-finds" style="display:none">
+    <button class="tapzone left" onclick="step(-1)" aria-label="Previous"></button>
+    <button class="tapzone right" onclick="step(1)" aria-label="Next"></button>
+    <div class="finds-head"><h2>Finds</h2><span id="finds-sub">0 pieces mapped this patrol</span></div>
+    <div class="chips" id="chips"></div>
+    <div class="finds-grid" id="finds-grid"></div>
+    <button class="backbtn" onclick="go('replay')" aria-label="Back to live footage">
+      <svg><use href="#i-video-camera"/></svg>Live view
+    </button>
+  </div>
+
+  <!-- ===================== SHEET ===================== -->
+  <button class="backdrop" id="backdrop" onclick="closeSheet()" aria-label="Close"></button>
+  <div class="sheet" id="sheet" role="dialog" aria-modal="true">
+    <div class="grip"></div>
+    <div class="sheet-icon" id="sheet-icon"></div>
+    <h3 id="sheet-title">—</h3>
+    <div class="badges" id="sheet-badges"></div>
+    <div class="coords" id="sheet-coords"></div>
+    <a class="btn primary" id="sheet-nav" href="#" target="_blank" rel="noopener">
+      <svg class="ic"><use href="#i-navigation-arrow"/></svg>Take me there
+    </a>
+    <button class="btn" id="sheet-action" onclick="toggleCleaned()">Mark as collected</button>
+    <button class="btn ghost" onclick="closeSheet()">Close</button>
+  </div>
+
+</div></div>
+<div class="stage-cap">Tap either side to move between Replay / Map / Finds &middot; flows to the map once the patrol finishes</div>
+</div>
+
+<script src="/static/vendor/leaflet.js"></script>
+<script src="/static/vendor/leaflet.markercluster.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  // Litter class -> glyph and colour lane. Anything unrecognised falls back to
+  // a generic bin rather than disappearing.
+  const CLASS_INFO = {
+    'Plastic':              { icon: 'drop',      lane: 'teal'   },
+    'Soft Plastic':         { icon: 'drop',      lane: 'teal'   },
+    'Metal':                { icon: 'gear',      lane: 'amber'  },
+    'Glass':                { icon: 'wine',      lane: 'coral'  },
+    'Paper pack':           { icon: 'newspaper', lane: 'amber'  },
+    'Paper-Cardboard':      { icon: 'newspaper', lane: 'amber'  },
+    'Clothing':             { icon: 't-shirt',   lane: 'violet' },
+    'Miscellaneous Litter': { icon: 'trash',     lane: 'ink'    },
+  };
+  const info = c => CLASS_INFO[c] || { icon: 'trash', lane: 'ink' };
+  const LANE_HEX = { teal:'#128577', amber:'#B86A14', violet:'#6B4E9E', coral:'#D6446A', ink:'#9A8E80' };
+
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s).replace(/[&<>"']/g, c =>
+      ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+  /** Crop photo when we have one, class glyph when we don't. */
+  function thumb(d) {
+    const i = info(d.class);
+    if (d.image_url) {
+      return `<img src="${esc(d.image_url)}" alt="" loading="lazy" ` +
+             `onerror="this.parentNode.innerHTML='&lt;svg class=&quot;ic lane-${i.lane}&quot;&gt;` +
+             `&lt;use href=&quot;#i-${i.icon}&quot;/&gt;&lt;/svg&gt;'">`;
+    }
+    return `<svg class="ic lane-${i.lane}"><use href="#i-${i.icon}"/></svg>`;
+  }
+
+  let DATA = { detections: [], pins: [], flight_path: null, duration_s: 45 };
+  let view = 'replay', filter = 'all';
+  let map = null, cluster = null, flightLine = null, mapFramed = false;
+  const markers = {}, cleaned = new Set();
+  let active = null, currentMission = null;
+  let cursorDet = 0, cursorPins = 0, cursorFrames = 0;
+  let booted = false, wasLive = false, autoFlowed = false, pollTimer = null;
+
+  // ---------------------------------------------------------------- live ---
+  const POLL_MS = 2000;
+
+  async function poll() {
+    try {
+      const r = await fetch(`/api/live?since=${cursorDet}&pins_since=${cursorPins}&frames_since=${cursorFrames}`, { cache: 'no-store' });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      apply(await r.json());
+    } catch (err) {
+      console.error('live poll failed:', err);
+      if (!booted) {
+        $('loading').style.display = 'none';
+        $('errorbox').style.display = 'flex';
+        $('error-msg').textContent = 'Cannot reach the processing station. ' + err.message;
+      }
+    }
+  }
+
+  function apply(s) {
+    if (!booted) boot(s);
+
+    const mid = s.mission_id || s.status;
+    if (currentMission !== null && mid !== currentMission) {
+      resetForNewMission();
+      // Only shout about it when a real flight is starting — falling back to
+      // the pinned replay is also an id change, but it is not news.
+      if (s.live) announceNewMission(s);
+    }
+    currentMission = mid;
+
+    if (s.detections && s.detections.length) {
+      s.detections.forEach(d => { DATA.detections.push(d); addTicker(d); });
+      setHero(s.detections[s.detections.length - 1]);
+      renderChips(); renderFinds();
+    }
+    if (s.pins && s.pins.length) {
+      s.pins.forEach(p => { DATA.pins.push(p); if (map) addPin(p); });
+      updateLegend();
+      if (map && !mapFramed && DATA.pins.length) mapFramed = fitPins();
+    }
+    cursorDet = s.total_detections || DATA.detections.length;
+    cursorPins = s.total_pins || DATA.pins.length;
+
+    if (s.flight_path && s.flight_path.length && !DATA.flight_path) DATA.flight_path = s.flight_path;
+    if (DATA.flight_path && map && !flightLine) {
+      flightLine = L.polyline(DATA.flight_path.map(p => [p.lat, p.lng]),
+        { color: '#6B4E9E', weight: 3, opacity: .5, dashArray: '6,6' }).addTo(map);
+    }
+
+    paintStatus(s);
+
+    // Analysed frames arrive with their boxes already drawn on. When they are
+    // present they replace the video entirely, which is what makes the boxes
+    // correct: there is no longer a playhead to keep in step with the detector.
+    if (s.frames && s.frames.length) {
+      s.frames.forEach(f => shotQueue.push(f));
+      cursorFrames = s.total_frames || (cursorFrames + s.frames.length);
+      startShotPlayer();
+    } else if (typeof s.total_frames === 'number') {
+      cursorFrames = s.total_frames;
+    }
+
+    // Only fall back to the raw video when this mission has no analysed frames
+    // at all (the pinned replay of an older patrol).
+    if (!usingShots) {
+      if (s.live && typeof s.current_time_s === 'number') syncToProcessing(s.current_time_s);
+      else releaseSync();
+    }
+
+    if (wasLive && !s.live) onComplete(s);
+    wasLive = !!s.live;
+  }
+
+  function boot(s) {
+    booted = true;
+    DATA = { detections: [], pins: [], flight_path: null, duration_s: s.duration_s || 45 };
+    $('loading').style.display = 'none';
+    if (s.location) {
+      $('loc-label').textContent = s.location;
+      const bits = String(s.location).split(',');
+      $('place-name').textContent = bits[0].trim();
+      $('place-region').textContent = bits.slice(1).join(',').trim();
+    }
+    const v = $('video');
+    if (s.video_url) v.src = s.video_url;
+    if (s.poster_url) v.poster = s.poster_url;
+    v.addEventListener('loadedmetadata', () => {
+      $('center-icon').style.display = 'none';
+
+    });
+    v.play().catch(() => {});
+    setupMap(); setupKeys();
+    requestAnimationFrame(drawLoop);
+  }
+
+  function resetForNewMission() {
+    DATA.detections = []; DATA.pins = []; DATA.flight_path = null;
+    cursorDet = 0; cursorPins = 0; cursorFrames = 0; mapFramed = false; autoFlowed = false;
+    resetShots();
+    cleaned.clear();
+    Object.keys(markers).forEach(k => delete markers[k]);
+    if (cluster) cluster.clearLayers();
+    if (flightLine && map) { map.removeLayer(flightLine); flightLine = null; }
+    $('ticker').innerHTML = ''; $('finds-grid').innerHTML = '';
+    $('hero').style.display = 'none'; $('hero-placeholder').style.display = '';
+    $('complete-card').classList.remove('show');
+    filter = 'all'; renderChips(); updateLegend();
+
+    // The footage restarts with the flight, so the sync controller has to
+    // forget everything it learned about the old one.
+    seen.clear();
+    SYNC.peak = 0; SYNC.lastWall = 0; SYNC.behindSince = 0; SYNC.active = false;
+    const v = $('video');
+    v.playbackRate = 1;
+    try { v.currentTime = 0; } catch (e) { /* metadata not in yet */ }
+  }
+
+  /** A fresh flight wipes the board — make that unmistakable, not silent. */
+  function announceNewMission(s) {
+    const card = $('starting-card');
+    $('watermark').textContent = '0';
+    if (s.location) $('loc-label').textContent = s.location;
+    card.classList.add('show');
+    if (navigator.vibrate) navigator.vibrate([25, 40, 25, 40, 60]);
+    // Put the crowd back on the live footage — the map is the old patrol's story.
+    if (view !== 'replay') go('replay');
+    clearTimeout(announceNewMission._t);
+    announceNewMission._t = setTimeout(() => card.classList.remove('show'), 4000);
+  }
+
+  function paintStatus(s) {
+    const live = !!s.live;
+    $('live-dot').classList.toggle('idle', !live);
+    const total = s.total_pins || 0;
+    $('watermark').textContent = total;
+    $('finds-sub').textContent = `${DATA.detections.length} pieces mapped this patrol`;
+
+    // Altitude is why a bottle is only a few pixels wide, so it stays on screen.
+    const alt = (s.altitude && s.altitude.avg) || altitudeOf(DATA);
+    if (alt) {
+      $('alt-chip').textContent = '▲ ' + Math.round(alt) + ' m';
+      if (s.altitude) $('alt-chip').title = `${s.altitude.min}–${s.altitude.max} m ${s.altitude.source}`;
+    }
+  }
+
+  function altitudeOf(d) {
+    const path = (d && d.flight_path) || [];
+    const alts = path.map(p => p.alt).filter(a => typeof a === 'number');
+    return alts.length ? alts.reduce((a, b) => a + b, 0) / alts.length : null;
+  }
+
+  function onComplete(s) {
+    const total = s.total_pins || DATA.pins.length;
+    $('complete-count').textContent = total;
+    $('complete-card').classList.add('show');
+    if (navigator.vibrate) navigator.vibrate([40, 60, 40]);
+    // The design's story beat: the patrol ends and the map takes over.
+    if (!autoFlowed) {
+      autoFlowed = true;
+      setTimeout(() => {
+        $('complete-card').classList.remove('show');
+        if (view === 'replay') go('map');
+      }, 2600);
+    }
+  }
+
+  // -------------------------------------------------------------- replay ---
+  const HOLD = 0.6;
+  const seen = new Set();
+
+  // ------------------------------------------------- annotated frame player ---
+  // The station publishes each frame it analysed with the boxes already drawn
+  // on it. Playing those is what makes the boxes land on the litter: a box and
+  // its frame are one image, so they cannot drift apart no matter how far the
+  // phone's clock is from the station's.
+  const shotQueue = [];
+  let usingShots = false, shotTimer = null, shotFront = 'a', shotPlayedAt = 0;
+  // Frames are produced roughly one per second of footage but arrive in bursts
+  // as workers finish. Hold each one long enough to actually be looked at, and
+  // speed up when the queue is running long so the view stays near live.
+  const SHOT_MIN_MS = 700, SHOT_MAX_MS = 1600;
+
+  function startShotPlayer() {
+    if (shotTimer) return;
+    const tick = () => {
+      shotTimer = null;
+      const next = shotQueue.shift();
+      if (!next) return;                       // nothing buffered; poll restarts us
+      showShot(next);
+      // Longer queue -> shorter hold, so a phone that joined late catches up
+      // rather than falling further behind.
+      const hold = Math.max(SHOT_MIN_MS, SHOT_MAX_MS - shotQueue.length * 220);
+      shotTimer = setTimeout(tick, hold);
+    };
+    tick();
+  }
+
+  function showShot(f) {
+    if (!usingShots) {
+      usingShots = true;
+      // The raw video and the SVG overlay are the old mechanism; retire both so
+      // nothing paints a second, differently-timed set of boxes.
+      const v = $('video');
+      try { v.pause(); } catch (e) {}
+      v.style.display = 'none';
+      $('overlay').innerHTML = '';
+      $('overlay').style.display = 'none';
+      $('center-icon').style.display = 'none';
+      $('view-replay').classList.add('shots');
+      releaseSync();
+    }
+    const back = $('shot-' + (shotFront === 'a' ? 'b' : 'a'));
+    const front = $('shot-' + shotFront);
+    back.onload = () => {
+      back.classList.add('on');
+      front.classList.remove('on');
+      shotFront = shotFront === 'a' ? 'b' : 'a';
+      shotPlayedAt = f.t;
+    };
+    back.onerror = () => { back.onload = null; };
+    back.src = f.url;
+  }
+
+  function resetShots() {
+    shotQueue.length = 0;
+    if (shotTimer) { clearTimeout(shotTimer); shotTimer = null; }
+    usingShots = false; shotFront = 'a'; shotPlayedAt = 0;
+    ['shot-a', 'shot-b'].forEach(id => {
+      const el = $(id); el.classList.remove('on'); el.removeAttribute('src');
+    });
+    const v = $('video');
+    v.style.display = ''; $('overlay').style.display = '';
+    $('view-replay').classList.remove('shots');
+  }
+
+  // ---- Keeping the footage on the frame the detector is actually looking at ----
+  //
+  // The detector walks the footage far slower than real time: at ~0.6 frames/sec
+  // with one frame sampled per second of video, it covers about 0.6s of footage
+  // per second of wall clock. Playing the video at 1x therefore runs away from
+  // the processing position, and the old fix — seek back whenever drift passed
+  // 1.5s — produced exactly the lag being reported: the video creeps ahead into
+  // frames with no detections yet, then jumps backwards.
+  //
+  // So the video is slaved to the processing position instead. We measure how
+  // fast the server is advancing and match it with playbackRate, nudging the
+  // rate slightly to close any residual error. Seeking is reserved for a real
+  // desync (a restart, or a tab that was backgrounded).
+  // Two things make the raw signal hard to follow. Inference blocks the server,
+  // so several polls can resolve at once, each carrying a timestamp that was
+  // already stale when it was written — chasing those literally is what made the
+  // video jump backwards. And `current_time_s` only moves when a frame lands, so
+  // it climbs in steps rather than smoothly. Both are handled below: the value
+  // is treated as monotonic (a sample older than one we have already seen is
+  // discarded, never seeked to), and the video is driven by playback rate with a
+  // deadband so small residual error is simply left alone.
+  const SYNC = {
+    peak: 0,            // highest current_time_s seen; the signal only goes up
+    lastWall: 0,        // performance.now() at the last accepted sample
+    rate: 0.6,          // measured footage-seconds per wall-second
+    behindSince: 0,     // when the video first fell badly behind
+    active: false,
+  };
+  // Sit slightly behind the processing head so the detections for the visible
+  // frame have definitely arrived.
+  const SYNC_LAG = 0.4;
+  const DEADBAND = 0.5;   // don't chase error smaller than this
+  const HARD_SEEK = 4.0;  // and only seek if it stays this bad
+  const SEEK_AFTER_MS = 2500;
+
+  function syncToProcessing(serverTime) {
+    const v = $('video');
+    if (v.readyState < 1 || !isFinite(serverTime)) return;
+    const now = performance.now();
+
+    // A lower reading than we already hold is a stale response, not a rewind.
+    if (serverTime > SYNC.peak) {
+      const dWall = SYNC.lastWall ? (now - SYNC.lastWall) / 1000 : 0;
+      const dServer = serverTime - SYNC.peak;
+      if (dWall > 0.4 && dServer < 30) {
+        SYNC.rate = SYNC.rate * 0.8 + (dServer / dWall) * 0.2;
+      }
+      SYNC.peak = serverTime;
+      SYNC.lastWall = now;
+    }
+
+    // The playhead must never overtake the detector: frames past the head have
+    // no boxes yet, which is the whole complaint. If it has caught up — during
+    // model warmup, or whenever inference stalls — hold rather than run ahead.
+    // Without this the footage reaches the end mid-flight and loops to zero.
+    if (v.currentTime >= SYNC.peak) {
+      if (v.currentTime > SYNC.peak + HARD_SEEK) v.currentTime = Math.max(0, SYNC.peak - SYNC_LAG);
+      if (!v.paused) v.pause();
+      SYNC.active = true;
+      SYNC.behindSince = 0;
+      return;
+    }
+    if (v.paused) v.play().catch(() => {});
+
+    const target = Math.max(0, SYNC.peak - SYNC_LAG);
+    const error = target - v.currentTime;
+
+    // Seek only when the gap is both large and persistent — a single bad sample
+    // during an inference stall should never move the playhead.
+    if (Math.abs(error) > HARD_SEEK) {
+      if (!SYNC.behindSince) SYNC.behindSince = now;
+      if (now - SYNC.behindSince > SEEK_AFTER_MS) {
+        v.currentTime = target;
+        SYNC.behindSince = 0;
+      }
+    } else {
+      SYNC.behindSince = 0;
+    }
+
+    // Match the detector's pace, correcting gently for anything outside the
+    // deadband. Bounded well away from zero so playback never visibly freezes.
+    const corr = Math.abs(error) > DEADBAND ? (error - Math.sign(error) * DEADBAND) * 0.35 : 0;
+    const rate = Math.max(0.25, Math.min(2.5, SYNC.rate + corr));
+    if (Math.abs(v.playbackRate - rate) > 0.05) v.playbackRate = rate;
+
+    SYNC.active = true;
+  }
+
+  /** Back to normal playback once the patrol is no longer being processed. */
+  function releaseSync() {
+    if (!SYNC.active) return;
+    SYNC.active = false;
+    SYNC.behindSince = 0;
+    const v = $('video');
+    if (v.playbackRate !== 1) v.playbackRate = 1;
+    // The sync loop may have parked it at the head; let the replay run on.
+    if (v.paused) v.play().catch(() => {});
+  }
+
+  function drawLoop() {
+    // The annotated frames carry their own boxes, so the overlay must stay out
+    // of the way — two sets of boxes on different clocks is the bug, doubled.
+    if (usingShots) { requestAnimationFrame(drawLoop); return; }
+
+    const v = $('video');
+    const svg = $('overlay');
+    const t = v.currentTime || 0;
+
+    // Hold the playhead at the detector's head every frame, not just on each
+    // poll — at a 1.5s poll interval the footage could otherwise overshoot by
+    // seconds, run off the end, and snap back.
+    if (SYNC.active) {
+      if (t >= SYNC.peak) { if (!v.paused) v.pause(); }
+      else if (v.paused) v.play().catch(() => {});
+    }
+    const vw = v.videoWidth, vh = v.videoHeight;
+    const W = v.clientWidth, H = v.clientHeight;
+
+    if (!vw || !vh || !W || !H) { requestAnimationFrame(drawLoop); return; }
+
+    // The video is `object-fit: cover`, so it is scaled up and centre-cropped.
+    // Boxes are stored normalised to the *source* frame, so they have to go
+    // through the same mapping — stretching a 16:9 viewBox over a tall phone
+    // screen turns every box into a sliver.
+    const scale = Math.max(W / vw, H / vh);
+    const dx = (W - vw * scale) / 2;
+    const dy = (H - vh * scale) / 2;
+    svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+
+    const parts = [];
+    DATA.detections.forEach(d => {
+      if (!d.box || Math.abs(d.timestamp_s - t) > HOLD) return;
+      const [x1, y1, x2, y2] = d.box;
+      let px = x1 * vw * scale + dx, py = y1 * vh * scale + dy;
+      let pw = (x2 - x1) * vw * scale, ph = (y2 - y1) * vh * scale;
+      // A bottle can be six pixels across; give it a tappable-looking minimum.
+      const padX = Math.max(0, 26 - pw) / 2, padY = Math.max(0, 26 - ph) / 2;
+      px -= padX; py -= padY; pw += padX * 2; ph += padY * 2;
+      if (px + pw < 0 || py + ph < 0 || px > W || py > H) return;  // cropped out
+      const fresh = !seen.has(d.id); if (fresh) seen.add(d.id);
+      parts.push(`<rect class="det-box${fresh ? ' fresh' : ''}" x="${px.toFixed(1)}" y="${py.toFixed(1)}" ` +
+                 `width="${pw.toFixed(1)}" height="${ph.toFixed(1)}" rx="4" ` +
+                 `style="stroke:${LANE_HEX[info(d.class).lane]}"/>`);
+    });
+    svg.innerHTML = parts.join('');
+    requestAnimationFrame(drawLoop);
+  }
+
+  function setHero(d) {
+    $('hero-placeholder').style.display = 'none';
+    $('hero').style.display = '';
+    $('hero-icon').innerHTML = thumb(d);
+    $('hero-title').textContent = d.class;
+    $('hero-meta').textContent = `${d.timestamp_s.toFixed(1)}s · ${d.latitude.toFixed(5)}, ${d.longitude.toFixed(5)}`;
+    $('hero-conf').textContent = Math.round(d.confidence * 100) + '%';
+    $('hero').onclick = () => openSheet(d);
+    const el = $('hero'); el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop');
+  }
+  window.openLatest = () => { const d = DATA.detections[DATA.detections.length - 1]; if (d) openSheet(d); };
+
+  function addTicker(d) {
+    const b = document.createElement('button');
+    b.className = 'tcard';
+    b.innerHTML = thumb(d);
+    b.onclick = () => openSheet(d);
+    const t = $('ticker');
+    t.insertBefore(b, t.firstChild);
+    while (t.children.length > 24) t.removeChild(t.lastChild);
+  }
+
+  // ----------------------------------------------------------------- map ---
+  function setupMap() {
+    map = L.map('map', { zoomControl: false, attributionControl: true })
+          .setView([{{ map_default_lat }}, {{ map_default_lng }}], {{ map_default_zoom }});
+    L.control.zoom({ position: 'bottomright' }).addTo(map);
+    L.tileLayer('/api/tiles/sat/{z}/{x}/{y}.jpg', {
+      maxZoom: 21, maxNativeZoom: 19, attribution: 'Imagery © Esri'
+    }).addTo(map);
+
+    cluster = (typeof L.markerClusterGroup === 'function')
+      ? L.markerClusterGroup({
+          maxClusterRadius: 40, showCoverageOnHover: false,
+          iconCreateFunction: c => L.divIcon({
+            className: 'cluster-wrap',
+            html: `<div class="cluster">${c.getChildCount()}</div>`, iconSize: [34, 34]
+          })
+        }).addTo(map)
+      : L.layerGroup().addTo(map);
+
+    DATA.pins.forEach(addPin);
+    updateLegend();
+  }
+
+  function addPin(p) {
+    const m = L.marker([p.avg_latitude, p.avg_longitude], {
+      icon: L.divIcon({
+        className: 'pin-wrap',
+        html: `<div class="pin" id="pin-${p.id}">${thumb({ class: p.class, image_url: p.image_url })}</div>`,
+        iconSize: [30, 30], iconAnchor: [15, 15]
+      })
+    }).on('click', () => openSheet(p, true));
+    markers[p.id] = m;
+    cluster.addLayer(m);
+  }
+
+  /**
+   * Frames the patrol area. Returns false if it could not.
+   *
+   * The map is built while its container is still `display:none`, so Leaflet
+   * measures it as 0x0. Fitting bounds into that produces a whole-world view,
+   * which is what happened before this guard: the caller must keep retrying
+   * until the container has actually been laid out.
+   */
+  function fitPins() {
+    if (!map || !DATA.pins.length) return false;
+    const s = map.getSize();
+    if (s.x < 80 || s.y < 80) return false;
+    try {
+      const b = L.latLngBounds(DATA.pins.map(p => [p.avg_latitude, p.avg_longitude]));
+      map.fitBounds(b, { padding: [46, 46], maxZoom: 19 });
+      return true;
+    } catch (e) { console.warn('fitBounds skipped', e); return false; }
+  }
+
+  function updateLegend() {
+    const total = DATA.pins.length;
+    $('m-remaining').textContent = (total - cleaned.size) + ' to collect';
+    $('m-cleaned').textContent = cleaned.size + ' cleaned';
+  }
+
+  // --------------------------------------------------------------- finds ---
+  function renderChips() {
+    const counts = {};
+    DATA.detections.forEach(d => { counts[d.class] = (counts[d.class] || 0) + 1; });
+    if (filter !== 'all' && !counts[filter]) filter = 'all';
+    const wrap = $('chips');
+    wrap.innerHTML = '';
+    const mk = (key, label, lane) => {
+      const b = document.createElement('button');
+      b.className = `chip lane-${lane}` + (filter === key ? ' active' : '');
+      b.textContent = label;
+      b.onclick = () => { filter = key; renderChips(); renderFinds(); };
+      wrap.appendChild(b);
+    };
+    mk('all', `All ${DATA.detections.length}`, 'teal');
+    Object.keys(counts).sort((a, b) => counts[b] - counts[a])
+      .forEach(k => mk(k, `${k} ${counts[k]}`, info(k).lane));
+  }
+
+  function renderFinds() {
+    const grid = $('finds-grid');
+    const list = filter === 'all' ? DATA.detections : DATA.detections.filter(d => d.class === filter);
+    grid.innerHTML = '';
+    list.forEach(d => {
+      const c = document.createElement('button');
+      c.className = 'find-card';
+      c.innerHTML = `<div class="fc-icon">${thumb(d)}</div>` +
+                    `<div class="fc-class">${esc(d.class)}</div>` +
+                    `<div class="fc-meta">${Math.round(d.confidence * 100)}% · ${d.timestamp_s.toFixed(1)}s</div>`;
+      c.onclick = () => openSheet(d);
+      grid.appendChild(c);
+    });
+  }
+
+  // --------------------------------------------------------------- sheet ---
+  function openSheet(item, isPin) {
+    active = {
+      id: item.id,
+      cls: item.class,
+      conf: isPin ? item.max_confidence : item.confidence,
+      lat: isPin ? item.avg_latitude : item.latitude,
+      lng: isPin ? item.avg_longitude : item.longitude,
+      img: item.image_url,
+      seen: isPin ? (item.sighting_count || 1) : (item.tile_hits || 1),
+      time: isPin ? null : item.timestamp_s
+    };
+    const a = active;
+    $('sheet-icon').innerHTML = thumb({ class: a.cls, image_url: a.img });
+    $('sheet-title').textContent = a.cls;
+
+    const pct = Math.round(a.conf * 100);
+    const confCls = a.conf >= .85 ? 'conf-good' : a.conf >= .6 ? 'conf-ok' : 'conf-low';
+    $('sheet-badges').innerHTML =
+      `<span class="badge ${confCls}">${pct}% confident</span>` +
+      (a.time != null ? `<span class="badge neutral">${a.time.toFixed(1)}s</span>` : '') +
+      `<span class="badge neutral">seen ${a.seen}×</span>`;
+    $('sheet-coords').textContent = `${a.lat.toFixed(6)}, ${a.lng.toFixed(6)}`;
+    $('sheet-nav').href =
+      `https://www.google.com/maps/dir/?api=1&destination=${a.lat},${a.lng}&travelmode=walking`;
+
+    paintAction();
+    $('sheet').classList.add('open');
+    $('backdrop').classList.add('open');
+  }
+
+  function paintAction() {
+    const done = active && cleaned.has(active.id);
+    const b = $('sheet-action');
+    b.textContent = done ? '↩ Mark as still there' : '✅ Mark as collected';
+    b.className = 'btn ' + (done ? 'done' : 'primary');
+  }
+
+  window.closeSheet = () => {
+    $('sheet').classList.remove('open');
+    $('backdrop').classList.remove('open');
+  };
+  window.toggleCleaned = () => {
+    if (!active) return;
+    cleaned.has(active.id) ? cleaned.delete(active.id) : cleaned.add(active.id);
+    const dot = document.getElementById('pin-' + active.id);
+    if (dot) dot.classList.toggle('cleaned', cleaned.has(active.id));
+    paintAction();
+    updateLegend();
+  };
+
+  // ---------------------------------------------------------------- nav ---
+  const ORDER = ['replay', 'map', 'finds'];
+
+  window.go = function (v) {
+    if (!ORDER.includes(v)) return;
+    view = v;
+    ORDER.forEach(k => {
+      $('view-' + k).style.display = (k === v) ? '' : 'none';
+      $('dot-' + k).classList.toggle('active', k === v);
+    });
+    closeSheet();
+    history.replaceState(null, '', '#' + v);
+    if (v === 'map' && map) setTimeout(() => { map.invalidateSize(); if (!mapFramed) mapFramed = fitPins(); }, 60);
+  };
+  window.step = d => go(ORDER[Math.max(0, Math.min(2, ORDER.indexOf(view) + d))]);
+
+  function setupKeys() {
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape') closeSheet();
+      if (e.key === 'ArrowLeft') step(-1);
+      if (e.key === 'ArrowRight') step(1);
+    });
+    const h = (location.hash || '').replace('#', '');
+    if (ORDER.includes(h)) go(h);
+    window.addEventListener('hashchange', () => {
+      const k = (location.hash || '').replace('#', '');
+      if (ORDER.includes(k)) go(k);
+    });
+  }
+
+  // --------------------------------------------------------------- start ---
+  poll();
+  pollTimer = setInterval(poll, POLL_MS);
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) { clearInterval(pollTimer); pollTimer = null; }
+    else if (!pollTimer) { poll(); pollTimer = setInterval(poll, POLL_MS); }
+  });
+})();
+</script>
+</body>
+</html>

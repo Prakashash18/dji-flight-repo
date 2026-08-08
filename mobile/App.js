@@ -11,6 +11,8 @@ import ControlScreen from './screens/ControlScreen';
 import AuthScreen from './screens/AuthScreen';
 import { t } from './utils/translations';
 import { parsePinParams } from './utils/statsHelper';
+import LitterAlertBanner from './components/LitterAlertBanner';
+import useLitterAlertSound from './utils/useLitterAlertSound';
 
 // Supabase configuration
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL || "";
@@ -39,6 +41,45 @@ export default function App() {
   useEffect(() => {
     userRoleRef.current = userRole;
   }, [userRole]);
+
+  // --- New-litter alert (animated banner + chime + haptics) ---
+  const [litterAlert, setLitterAlert] = useState(null);
+  const [focusPin, setFocusPin] = useState(null);
+  const playLitterChime = useLitterAlertSound();
+
+  // A survey publishes pins in rapid bursts. Collect them for a moment and raise
+  // one banner for the batch, rather than a stampede of individual alerts.
+  const alertBatch = useRef([]);
+  const alertTimer = useRef(null);
+
+  const queueLitterAlert = useRef((pin) => {
+    alertBatch.current.push(pin);
+    if (alertTimer.current) return;
+
+    alertTimer.current = setTimeout(() => {
+      const batch = alertBatch.current;
+      alertBatch.current = [];
+      alertTimer.current = null;
+      if (!batch.length) return;
+
+      const newest = batch[batch.length - 1];
+      setLitterAlert({
+        // A fresh object identity each time makes the banner replay its entrance
+        // even when consecutive alerts describe the same location.
+        key: Date.now(),
+        count: batch.length,
+        id: newest.id,
+        latitude: newest.latitude,
+        longitude: newest.longitude,
+        confidence: newest.confidence,
+      });
+      playLitterChime();
+    }, 900);
+  }).current;
+
+  useEffect(() => () => {
+    if (alertTimer.current) clearTimeout(alertTimer.current);
+  }, []);
 
   // Real-time Supabase Subscription
   useEffect(() => {
@@ -141,6 +182,8 @@ export default function App() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'litter_pins' }, (payload) => {
         if (payload.eventType === 'INSERT' && payload.new) {
           setPins(prev => [payload.new, ...prev]);
+          // Announce fresh litter to volunteers with sound, haptics and a banner.
+          queueLitterAlert(payload.new);
         } else if (payload.eventType === 'UPDATE' && payload.new) {
           setPins(prev => prev.map(pin => (pin && pin.id === payload.new.id) ? payload.new : pin));
           
@@ -331,7 +374,18 @@ export default function App() {
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#131313" />
-      
+
+      {/* New-litter alert banner (floats above all tabs) */}
+      <LitterAlertBanner
+        alert={litterAlert}
+        onDismiss={() => setLitterAlert(null)}
+        onPress={(alert) => {
+          // Jump to the map and let it fly to the newly detected pin.
+          setCurrentTab('Map');
+          setFocusPin({ id: alert.id, latitude: alert.latitude, longitude: alert.longitude, key: alert.key });
+        }}
+      />
+
       {/* Premium Dark Command Header */}
       <View style={styles.header}>
         <View>
@@ -364,6 +418,7 @@ export default function App() {
             setActiveVolunteerName={setActiveVolunteerName}
             setHideTabBar={setHideTabBar}
             cleanupZones={cleanupZones}
+            focusPin={focusPin}
             t={t}
           />
         )}

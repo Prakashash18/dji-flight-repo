@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import NewPinPulse from '../components/NewPinPulse';
 import { StyleSheet, Text, View, Image, TouchableOpacity, Alert, TextInput, ScrollView, Linking, Platform, Share, SafeAreaView, StatusBar } from 'react-native';
 import MapView, { Marker, UrlTile, Polygon, Polyline } from 'react-native-maps';
 import { supabase } from '../App';
@@ -190,7 +191,8 @@ export default function MapScreen({
   activeVolunteerName,
   setActiveVolunteerName,
   setHideTabBar,
-  cleanupZones = []
+  cleanupZones = [],
+  focusPin = null
 }) {
   const [selectedPin, setSelectedPin] = useState(null);
   const [screenMode, setScreenMode] = useState('MISSION_LIST');
@@ -270,6 +272,51 @@ export default function MapScreen({
 
   const mapRef = useRef(null);
   const hasCentered = useRef(false);
+
+  // --- Freshly detected pins get an animated pulse for a short while ---
+  const [newPinIds, setNewPinIds] = useState([]);
+  const seenPinIds = useRef(null);
+  const pulseTimers = useRef({});
+
+  useEffect(() => {
+    const ids = pins.filter(Boolean).map(p => p.id);
+
+    // The first batch is history, not news — record it without pulsing anything.
+    if (seenPinIds.current === null) {
+      seenPinIds.current = new Set(ids);
+      return;
+    }
+
+    const fresh = ids.filter(id => !seenPinIds.current.has(id));
+    if (!fresh.length) return;
+
+    fresh.forEach(id => seenPinIds.current.add(id));
+    setNewPinIds(prev => [...new Set([...prev, ...fresh])]);
+
+    // Stop pulsing after 25s so an active survey doesn't leave the whole map animating.
+    fresh.forEach(id => {
+      pulseTimers.current[id] = setTimeout(() => {
+        setNewPinIds(prev => prev.filter(x => x !== id));
+        delete pulseTimers.current[id];
+      }, 25000);
+    });
+  }, [pins]);
+
+  useEffect(() => () => {
+    Object.values(pulseTimers.current).forEach(clearTimeout);
+  }, []);
+
+  // Fly to a pin when the user taps the new-litter banner.
+  useEffect(() => {
+    if (!focusPin || focusPin.latitude == null || !mapRef.current) return;
+    mapRef.current.animateToRegion({
+      latitude: focusPin.latitude,
+      longitude: focusPin.longitude,
+      latitudeDelta: 0.004,
+      longitudeDelta: 0.004,
+    }, 900);
+    // `key` changes on every banner tap, so re-tapping the same pin re-centres.
+  }, [focusPin?.key]);
 
   const onlineVolunteers = profiles && profiles.filter(p => p.role === 'volunteer').length > 0
     ? profiles.filter(p => p.role === 'volunteer')
@@ -1304,19 +1351,23 @@ export default function MapScreen({
                 return isAssignedToMe && isPinInZone(pin, zone);
               });
 
+              const isNewlyDetected = newPinIds.includes(pin.id) && pin.status === 'detected';
+
               return (
                 <Marker
                   key={pin.id}
                   coordinate={{ latitude: pin.latitude, longitude: pin.longitude }}
                   onPress={() => handlePinPress(pin)}
                 >
+                  {/* Radar pulse marks litter found in the last few seconds */}
+                  {isNewlyDetected && <NewPinPulse color={getStatusColor(pin.status)} />}
                   <View style={[
-                    styles.annotationContainer, 
+                    styles.annotationContainer,
                     { borderColor: getStatusColor(pin.status) },
                     isPinInMyAssignedZone && styles.annotationContainerMyZone
                   ]}>
                     <View style={[
-                      styles.annotationFill, 
+                      styles.annotationFill,
                       { backgroundColor: isPinInMyAssignedZone && pin.status !== 'cleaned' ? '#00fbfb' : getStatusColor(pin.status) }
                     ]} />
                   </View>

@@ -1,0 +1,34 @@
+# Jetson (JetPack / aarch64) dependencies.
+#
+# Deliberately NOT in this file, and why:
+#
+#   torch, torchvision  PyPI's aarch64 wheels are CPU-only. Installing them on a
+#                       Jetson gives you a server that runs, reports no CUDA, and
+#                       does SAHI on six Cortex-A78AE cores — roughly 20x slower
+#                       than the GPU, with nothing in the logs saying why.
+#                       Install NVIDIA's JetPack wheels first (jetson-setup.sh).
+#
+#   opencv-python       JetPack ships an OpenCV built with CUDA and GStreamer, in
+#                       the system dist-packages. The pip wheel shadows it and
+#                       decodes 4K H.265 on the CPU, which on this hardware is a
+#                       bigger bottleneck than the inference itself. Use the
+#                       system build via a --system-site-packages venv.
+#
+#   ultralytics         Installed separately with --no-deps so it cannot drag in
+#                       the CPU torch wheels behind your back.
+#
+# Everything below is pure Python or has working aarch64 wheels.
+
+fastapi>=0.95.0
+uvicorn>=0.22.0
+pydantic>=2.0
+supabase>=1.0.3
+python-dotenv>=1.0.0
+httpx>=0.24.0
+python-multipart>=0.0.6
+sahi>=0.11.14
+gdown>=5.1.0
+pandas>=2.0.0
+google-cloud-storage>=2.0.0
+reportlab>=4.0.0
+qrcode>=7.4

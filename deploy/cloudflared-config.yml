@@ -1,0 +1,53 @@
+# Cloudflare Tunnel config for Coastal Patrol.
+#
+# Copy to ~/.cloudflared/config.yml, replacing <TUNNEL_ID> with the id printed by
+#   cloudflared tunnel create coastal-patrol
+#
+# Two hostnames, one tunnel, one local server:
+#
+#   coastalpatrol.app          public — the phone demo the audience scans
+#   station.coastalpatrol.app  private — the processing station dashboard
+#
+# The public hostname is an ALLOWLIST. Anything not explicitly listed returns 404
+# before it ever reaches the app, so the endpoints that accept uploads, fetch
+# remote URLs or write to the database are simply not on the internet. That is
+# deliberate: /api/process takes a .pt model file, and a .pt is pickled Python —
+# loading an untrusted one is arbitrary code execution. Access on the station
+# hostname is the second layer, not the only one.
+
+tunnel: <TUNNEL_ID>
+credentials-file: /Users/prakash/.cloudflared/<TUNNEL_ID>.json
+
+# Keep this: this network blocks UDP/443, so QUIC never connects and cloudflared
+# retries it forever while serving 530s.
+protocol: http2
+
+originRequest:
+  # A patrol run can hold a connection open for a while.
+  connectTimeout: 30s
+  noTLSVerify: false
+
+ingress:
+  # ---------------------------------------------------------------- public ---
+  # The demo page, its live feed, the tile and crop proxies, and static assets.
+  - hostname: coastalpatrol.app
+    path: ^/(api/(demo|live|tiles|crops)(/.*)?|static/.*)$
+    service: http://localhost:8000
+
+  # Bare domain -> the app redirects browsers to /api/demo on this hostname.
+  - hostname: coastalpatrol.app
+    path: ^/$
+    service: http://localhost:8000
+
+  # Everything else on the public hostname does not exist.
+  - hostname: coastalpatrol.app
+    service: http_status:404
+
+  # --------------------------------------------------------------- station ---
+  # Full app. Put a Cloudflare Access policy on this hostname — without one it
+  # is exactly as exposed as the public hostname would have been.
+  - hostname: station.coastalpatrol.app
+    service: http://localhost:8000
+
+  # Required catch-all.
+  - service: http_status:404

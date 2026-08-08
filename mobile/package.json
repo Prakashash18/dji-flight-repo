@@ -11,14 +11,18 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.22.0",
     "expo": "^54.0.35",
+    "expo-audio": "~1.1.1",
+    "expo-haptics": "~15.0.8",
     "expo-status-bar": "~3.0.9",
     "lucide-react-native": "^0.220.0",
     "react": "19.1.0",
+    "react-dom": "^19.1.0",
     "react-native": "0.81.5",
     "react-native-maps": "1.20.1",
     "react-native-safe-area-context": "~5.6.0",
     "react-native-url-polyfill": "^3.0.0",
-    "react-native-vector-icons": "^9.2.0"
+    "react-native-vector-icons": "^9.2.0",
+    "react-native-web": "^0.21.2"
   },
   "devDependencies": {
     "@babel/core": "^7.20.0",

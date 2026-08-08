@@ -1,13 +1,16 @@
 from fastapi import APIRouter, Form, File, UploadFile, HTTPException, BackgroundTasks, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response, JSONResponse, FileResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 import uuid
 import datetime
+import json
+import re
 import os
 
 from config import settings
+from model_source import list_available_models
 from sealion import SeaLionClient
 
 # Setup Jinja2 templates folder
@@ -38,6 +41,41 @@ except Exception as e:
 
 router = APIRouter()
 sealion = SeaLionClient()
+
+# --- Upload handling ---
+# A DJI flight is routinely 1-3 GB. Reading one with `await upload.read()` pulls
+# the whole thing into a single bytes object: a 2.3 GB clip took the server from
+# 308 MB to 3.0 GB resident, which on a laptop means swap thrash that looks
+# exactly like a hang. Copy it through in chunks instead — Starlette has already
+# spooled it to a temp file, so this is a disk-to-disk copy at flat memory.
+UPLOAD_CHUNK_BYTES = 4 * 1024 * 1024
+
+
+async def stream_upload_to(upload: UploadFile, dest_path: str) -> int:
+    """Copy an upload to `dest_path` without holding it in memory."""
+    total = 0
+    await upload.seek(0)
+    with open(dest_path, "wb") as f:
+        while True:
+            chunk = await upload.read(UPLOAD_CHUNK_BYTES)
+            if not chunk:
+                break
+            f.write(chunk)
+            total += len(chunk)
+    return total
+
+
+def safe_upload_name(filename: Optional[str]) -> str:
+    """
+    Reduce a client-supplied filename to a bare, harmless basename.
+
+    The name is only kept to make temp files recognisable, but it lands in a
+    path — so `../../` or a leading slash from a crafted multipart part must not
+    survive. Anything outside a conservative charset is dropped.
+    """
+    base = os.path.basename(str(filename or "")).strip()
+    base = re.sub(r"[^A-Za-z0-9._-]", "_", base).lstrip(".")
+    return base[:100] or "upload"
 
 # --- In-Memory Mock Database ---
 MOCK_PINS = []
@@ -311,7 +349,500 @@ async def serve_dashboard(request: Request):
     """
     Serves the flight processing dashboard.
     """
-    return templates.TemplateResponse(request, "dashboard.html")
+    return templates.TemplateResponse(request, "dashboard.html", {
+        "available_models": list_available_models(),
+        "default_model_name": settings.DEFAULT_MODEL_NAME,
+        "sample_video_url": settings.SAMPLE_VIDEO_URL,
+        "sample_telemetry_url": settings.SAMPLE_TELEMETRY_URL,
+        "sample_poster_url": settings.SAMPLE_POSTER_URL,
+        "sample_preview_url": settings.SAMPLE_PREVIEW_URL,
+        "sample_location_label": settings.SAMPLE_LOCATION_LABEL,
+        "map_default_lat": settings.MAP_DEFAULT_LAT,
+        "map_default_lng": settings.MAP_DEFAULT_LNG,
+        "map_default_zoom": settings.MAP_DEFAULT_ZOOM,
+    })
+
+# --- Public mobile demo -----------------------------------------------------
+
+def _resolve_demo_mission() -> Optional[dict]:
+    """
+    Finds the mission the public demo should replay.
+
+    Prefers an explicitly pinned DEMO_MISSION_ID so the scan-to-try experience
+    never changes under visitors' feet; otherwise falls back to the most recent
+    mission titled "DEMO ...", and finally to the most recent one that actually
+    produced detections.
+    """
+    if not supabase_client:
+        return None
+
+    def _load(mission_id: str) -> Optional[dict]:
+        try:
+            res = supabase_client.table("missions").select("id,title,mission_date,description") \
+                .eq("id", mission_id).execute()
+            return res.data[0] if res.data else None
+        except Exception:
+            return None
+
+    if settings.DEMO_MISSION_ID:
+        row = _load(settings.DEMO_MISSION_ID)
+        if row:
+            return row
+
+    try:
+        res = supabase_client.table("missions").select("id,title,mission_date,description") \
+            .order("mission_date", desc=True).limit(40).execute()
+    except Exception as e:
+        print(f"⚠️ Demo mission lookup failed: {e}")
+        return None
+
+    rows = res.data or []
+    preferred = [r for r in rows if (r.get("title") or "").upper().startswith("DEMO")]
+    for row in preferred + rows:
+        desc = row.get("description")
+        if not desc:
+            continue
+        try:
+            task = json.loads(desc)
+        except (TypeError, ValueError):
+            continue
+        if isinstance(task, dict) and task.get("detections"):
+            return row
+    return None
+
+
+# --- Satellite tile proxy ---------------------------------------------------
+#
+# Tiles came straight from Esri, which meant every phone fetched every tile
+# internationally. Proxying them onto our own origin lets a CDN cache them close
+# to the audience — the first visitor pays for a tile, everyone after hits the
+# edge. It also means one flaky third party can no longer blank the map.
+
+# Only these upstreams are reachable. A free-form URL parameter here would be an
+# open proxy; an allowlist keeps it a tile cache.
+TILE_LAYERS = {
+    "sat": ("https://server.arcgisonline.com/ArcGIS/rest/services/"
+            "World_Imagery/MapServer/tile/{z}/{y}/{x}", "image/jpeg", "jpg"),
+    "labels": ("https://a.basemaps.cartocdn.com/rastertiles/voyager_only_labels/"
+               "{z}/{x}/{y}.png", "image/png", "png"),
+    "dark": ("https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
+             "image/png", "png"),
+}
+TILE_CACHE_DIR = "/tmp/tile_cache" if os.environ.get("K_SERVICE") else \
+    os.path.join(os.path.dirname(__file__), "tile_cache")
+MAX_TILE_ZOOM = 21
+
+
+@router.get("/tiles/{layer}/{z}/{x}/{y_ext}")
+async def get_tile(layer: str, z: int, x: int, y_ext: str):
+    """
+    Serves one map tile, fetching and caching it on first request.
+
+    The `y` carries a file extension (`…/33813.jpg`) purely so a CDN in front of
+    this treats it as a static image. Cloudflare's default cache keys off the
+    extension, and without one every tile came back DYNAMIC — measured — which
+    would put the whole basemap through the origin once per phone.
+    """
+    upstream = TILE_LAYERS.get(layer)
+    if not upstream:
+        raise HTTPException(status_code=404, detail="Unknown tile layer")
+    url_tpl, media, ext = upstream
+
+    y_str = y_ext.rsplit(".", 1)[0] if "." in y_ext else y_ext
+    if not y_str.isdigit():
+        raise HTTPException(status_code=404, detail="Bad tile coordinate")
+    y = int(y_str)
+
+    # Bounds-check before touching disk or the network: without this the path is
+    # an unbounded disk filler.
+    if not (0 <= z <= MAX_TILE_ZOOM):
+        raise HTTPException(status_code=404, detail="Zoom out of range")
+    limit = 1 << z
+    if not (0 <= x < limit and 0 <= y < limit):
+        raise HTTPException(status_code=404, detail="Tile out of range")
+
+    cached = os.path.join(TILE_CACHE_DIR, layer, str(z), str(x), f"{y}.{ext}")
+    headers = {"Cache-Control": "public, max-age=31536000, immutable"}
+
+    if os.path.exists(cached):
+        return FileResponse(cached, media_type=media, headers=headers)
+
+    import requests
+    try:
+        r = requests.get(url_tpl.format(z=z, x=x, y=y), timeout=12,
+                         headers={"User-Agent": "CoastalPatrol/1.0"})
+        r.raise_for_status()
+        body = r.content
+    except Exception as e:
+        # A missing tile should leave a hole in the map, not a 500 page.
+        raise HTTPException(status_code=502, detail=f"Tile upstream failed: {e}")
+
+    try:
+        os.makedirs(os.path.dirname(cached), exist_ok=True)
+        tmp = cached + ".part"
+        with open(tmp, "wb") as f:
+            f.write(body)
+        os.replace(tmp, cached)
+    except OSError as e:
+        print(f"⚠️ Could not cache tile {layer}/{z}/{x}/{y}: {e}")
+
+    return Response(content=body, media_type=media, headers=headers)
+
+
+# --- Detection crop proxy ---------------------------------------------------
+#
+# Crops live in Supabase Storage, which is canonical and what the mobile app
+# reads. Serving them to a demo crowd straight from there means every phone
+# fetches every thumbnail internationally. This proxies them onto our origin so
+# a CDN can cache them, without changing the stored image_url the app relies on.
+
+CROP_CACHE_DIR = "/tmp/crop_cache" if os.environ.get("K_SERVICE") else \
+    os.path.join(os.path.dirname(__file__), "crop_cache")
+SUPABASE_IMAGE_BUCKET = "litter-images"
+
+
+def _proxy_crop_url(image_url: Optional[str]) -> Optional[str]:
+    """Rewrites a Supabase Storage URL to our cached proxy path."""
+    if not image_url or not settings.SUPABASE_URL:
+        return image_url
+    prefix = f"{settings.SUPABASE_URL.rstrip('/')}/storage/v1/object/public/{SUPABASE_IMAGE_BUCKET}/"
+    if image_url.startswith(prefix):
+        return "/api/crops/" + image_url[len(prefix):]
+    return image_url
+
+
+@router.get("/crops/{object_path:path}")
+async def get_crop(object_path: str):
+    """Serves one detection crop, fetching it from Supabase Storage once."""
+    # The path is used on disk, so it must not be allowed to walk out of the
+    # cache directory. Only the shapes Supabase actually produces get through.
+    if not re.fullmatch(r"[A-Za-z0-9_\-/]+\.(jpg|jpeg|png)", object_path or "") \
+            or ".." in object_path:
+        raise HTTPException(status_code=404, detail="Bad crop path")
+
+    cached = os.path.join(CROP_CACHE_DIR, object_path)
+    headers = {"Cache-Control": "public, max-age=604800"}
+    media = "image/png" if object_path.lower().endswith(".png") else "image/jpeg"
+
+    if os.path.exists(cached):
+        return FileResponse(cached, media_type=media, headers=headers)
+
+    if not settings.SUPABASE_URL:
+        raise HTTPException(status_code=404, detail="No storage configured")
+
+    import requests
+    upstream = (f"{settings.SUPABASE_URL.rstrip('/')}/storage/v1/object/public/"
+                f"{SUPABASE_IMAGE_BUCKET}/{object_path}")
+    try:
+        r = requests.get(upstream, timeout=15)
+        r.raise_for_status()
+        body = r.content
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Crop upstream failed: {e}")
+
+    try:
+        os.makedirs(os.path.dirname(cached), exist_ok=True)
+        tmp = cached + ".part"
+        with open(tmp, "wb") as f:
+            f.write(body)
+        os.replace(tmp, cached)
+    except OSError as e:
+        print(f"⚠️ Could not cache crop {object_path}: {e}")
+
+    return Response(content=body, media_type=media, headers=headers)
+
+
+@router.get("/frames/{task_id}/{name}")
+async def get_annotated_frame(task_id: str, name: str):
+    """
+    One analysed frame with its detection boxes already drawn on.
+
+    Each file is written once and never changes, so it is immutable as far as any
+    cache is concerned — which is what lets a few hundred phones share one origin
+    fetch per frame instead of each pulling the whole video.
+    """
+    from processing_task import FRAMES_DIR
+
+    # Both segments land in a filesystem path, so accept only the exact shapes
+    # this server generates: a task uuid and a zero-padded millisecond stamp.
+    if not re.fullmatch(r"[A-Za-z0-9\-]{8,64}", task_id or "") \
+            or not re.fullmatch(r"\d{4,12}\.jpg", name or ""):
+        raise HTTPException(status_code=404, detail="Bad frame path")
+
+    path = os.path.realpath(os.path.join(FRAMES_DIR, task_id, name))
+    if os.path.dirname(os.path.dirname(path)) != os.path.realpath(FRAMES_DIR):
+        raise HTTPException(status_code=404, detail="Bad frame path")
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="No such frame")
+
+    return FileResponse(path, media_type="image/jpeg",
+                        headers={"Cache-Control": "public, max-age=31536000, immutable"})
+
+
+_ICON_SPRITE_PATH = os.path.join(os.path.dirname(__file__), "static", "vendor", "icons_sprite.svg")
+
+
+def _icon_sprite() -> str:
+    """The ten glyphs the phone demo uses, inlined.
+
+    Phosphor ships ~600KB of icon fonts and CSS for the full set; these ten cost
+    4KB as symbols. Inlined rather than linked so there is no second request and
+    no cross-document `<use>` quirks.
+    """
+    try:
+        with open(_ICON_SPRITE_PATH, encoding="utf-8") as f:
+            return f.read()
+    except OSError:
+        return ""
+
+
+@router.get("/demo", response_class=HTMLResponse)
+async def serve_mobile_demo(request: Request):
+    """Public, phone-first walkthrough of a real patrol. Meant to be scanned."""
+    return templates.TemplateResponse(request, "mobile_demo.html", {
+        "location": settings.SAMPLE_LOCATION_LABEL,
+        "icon_sprite": _icon_sprite(),
+        "map_default_lat": settings.MAP_DEFAULT_LAT,
+        "map_default_lng": settings.MAP_DEFAULT_LNG,
+        "map_default_zoom": settings.MAP_DEFAULT_ZOOM,
+    })
+
+
+@router.get("/demo/qr")
+async def demo_qr(request: Request, url: Optional[str] = None):
+    """
+    QR code pointing at the mobile demo, as an SVG.
+
+    Generated here rather than via an image service so it works on a laptop with
+    no internet and never leaks the deployment URL to a third party.
+    """
+    target = url or str(request.url_for("serve_mobile_demo"))
+    try:
+        import qrcode
+        import qrcode.image.svg
+
+        img = qrcode.make(target, image_factory=qrcode.image.svg.SvgPathImage, box_size=10, border=2)
+        import io
+
+        buf = io.BytesIO()
+        img.save(buf)
+        return Response(content=buf.getvalue(), media_type="image/svg+xml")
+    except ImportError:
+        raise HTTPException(
+            status_code=501,
+            detail="QR generation needs the 'qrcode' package: pip install qrcode",
+        )
+
+
+# Derived views of the live task, rebuilt only when the underlying counts move.
+# Every watching phone polls the same endpoint, so without this the server
+# re-filters the detection list and re-projects every cluster once per request —
+# O(watchers x mission size) of pure repeat work at exactly the moment the
+# machine is also running inference.
+_live_cache: Dict[str, Any] = {"key": None, "detections": [], "pins": []}
+
+
+def _derive_live_lists(task: dict):
+    """Returns (detections, pins), cached against the task's current counts."""
+    key = (task.get("task_id"),
+           len(task.get("detections") or ()),
+           len(task.get("clusters") or ()))
+    if _live_cache["key"] != key:
+        detections = [dict(d, image_url=_proxy_crop_url(d.get("image_url")))
+                      for d in task.get("detections", []) if d.get("box")]
+        pins = [{
+            "id": c.get("id"),
+            "class": c.get("class"),
+            "max_confidence": c.get("max_confidence"),
+            "avg_latitude": c.get("avg_latitude"),
+            "avg_longitude": c.get("avg_longitude"),
+            "image_url": _proxy_crop_url(c.get("image_url")),
+            "sighting_count": len(c.get("sightings") or []),
+        } for c in task.get("clusters", [])]
+        _live_cache.update({"key": key, "detections": detections, "pins": pins})
+    return _live_cache["detections"], _live_cache["pins"]
+
+
+def _active_task() -> Optional[dict]:
+    """The mission currently being processed, if any."""
+    from processing_task import PROCESSING_TASKS
+
+    running = [t for t in PROCESSING_TASKS.values() if t.get("status") == "processing"]
+    if running:
+        # Newest first, so a fresh flight takes over the crowd's screens.
+        return running[-1]
+
+    # Nothing running: fall back to the most recent in-memory task so the page
+    # still shows the flight that just finished rather than going blank.
+    finished = [t for t in PROCESSING_TASKS.values() if t.get("detections")]
+    return finished[-1] if finished else None
+
+
+# A crowd scanning the QR at the same moment all request `since=0`, and every
+# one of those responses is byte-identical. Serialising the same ~90KB once per
+# phone is the whole first-load cost, so the body is cached and replayed.
+_firstload_cache: Dict[str, Any] = {"key": None, "body": None}
+
+# How many analysed frames a phone gets when it first joins. Enough to start
+# playing immediately without pulling the whole flight down.
+FRAME_TAIL = 6
+
+
+@router.get("/live")
+async def get_live_state(since: int = 0, pins_since: int = 0, frames_since: int = 0):
+    """
+    Compact live state for the public phone view, polled by every watcher.
+
+    `since` / `pins_since` are cursors: a phone sends how many detections and
+    pins it already holds and gets back only what is new. During a flight that
+    keeps each update to a few hundred bytes, which is what makes a room full of
+    phones on shared wifi viable.
+    """
+    fresh_client = (since == 0 and pins_since == 0 and frames_since == 0)
+    task = _active_task()
+
+    # Replay the cached body when a fresh client asks for state that has not
+    # moved since it was built. The frame count is part of the key: without it a
+    # newly arrived phone would be handed a body from before the latest frames
+    # and sit on a stale picture.
+    if fresh_client and _firstload_cache["body"] is not None:
+        key = (task.get("task_id") if task else None,
+               len(task.get("detections") or ()) if task else -1,
+               len(task.get("clusters") or ()) if task else -1,
+               len(task.get("frames") or ()) if task else -1,
+               task.get("progress_percent") if task else None)
+        if _firstload_cache["key"] == key:
+            return Response(content=_firstload_cache["body"],
+                            media_type="application/json")
+
+    # No run this session — replay the pinned demo so the page is never empty.
+    if not task:
+        try:
+            demo = await get_demo_data()
+        except HTTPException:
+            return {"live": False, "status": "idle", "title": "Waiting for the next flight",
+                    "detections": [], "pins": [], "total_detections": 0, "total_pins": 0}
+        return {
+            "live": False,
+            "status": "replay",
+            "title": demo["title"],
+            "location": demo["location"],
+            "progress_percent": 100,
+            "stage": {"key": "export", "label": "Patrol complete",
+                      "detail": "Showing the most recent completed patrol."},
+            "detections": demo["detections"][since:],
+            "pins": demo["pins"][pins_since:],
+            "total_detections": len(demo["detections"]),
+            "total_pins": len(demo["pins"]),
+            "video_url": demo["video_url"],
+            "poster_url": demo["poster_url"],
+            "duration_s": demo["duration_s"],
+            "sahi": demo.get("sahi", {}),
+            "altitude": demo.get("altitude"),
+            "flight_path": demo.get("flight_path", []) if since == 0 else [],
+        }
+
+    detections, pins = _derive_live_lists(task)
+    stages = task.get("stages", [])
+    active = next((s for s in stages if s.get("status") == "active"), None)
+    if active is None and stages:
+        active = stages[-1]
+
+    payload = {
+        "live": task.get("status") == "processing",
+        "status": task.get("status"),
+        "mission_id": task.get("task_id"),
+        "title": "Live patrol",
+        "location": settings.SAMPLE_LOCATION_LABEL,
+        "progress_percent": task.get("progress_percent", 0),
+        "current_time_s": task.get("current_time_s", 0),
+        "duration_s": task.get("duration_s", 0),
+        "stage": {
+            "key": active.get("key") if active else None,
+            "label": active.get("label") if active else "Starting up",
+            "detail": active.get("detail") if active else "",
+            "tag": active.get("tag") if active else None,
+            "metric": active.get("metric") if active else None,
+        },
+        # Only the tail the caller has not seen yet.
+        "detections": detections[since:],
+        "pins": pins[pins_since:],
+        # Analysed frames with their boxes already drawn on. Only the newest few
+        # are worth sending: a phone joining mid-flight wants to see what is
+        # happening now, not replay everything it missed.
+        "frames": (task.get("frames") or [])[-FRAME_TAIL:] if frames_since == 0
+                  else (task.get("frames") or [])[frames_since:],
+        "total_frames": len(task.get("frames") or ()),
+        "total_detections": len(detections),
+        "total_pins": len(pins),
+        "video_url": settings.SAMPLE_PREVIEW_URL,
+        "poster_url": settings.SAMPLE_POSTER_URL,
+        "sahi": task.get("sahi", {}),
+        "altitude": task.get("altitude"),
+        # Static for the run, so send it only on a client's first poll — it is
+        # otherwise the bulk of an idle update, times every phone in the room.
+        "flight_path": task.get("flight_path", [])[::10] if since == 0 else [],
+    }
+
+    if fresh_client:
+        body = json.dumps(payload).encode()
+        _firstload_cache.update({
+            "key": (task.get("task_id"), len(task.get("detections") or ()),
+                    len(task.get("clusters") or ()), len(task.get("frames") or ()),
+                    task.get("progress_percent")),
+            "body": body,
+        })
+        return Response(content=body, media_type="application/json")
+
+    return payload
+
+
+@router.get("/demo/data")
+async def get_demo_data():
+    """
+    Everything the mobile demo needs, in one request: the replay detections with
+    their in-frame boxes, the georeferenced pins, and the flight path.
+    """
+    row = _resolve_demo_mission()
+    if not row:
+        raise HTTPException(status_code=404, detail="No completed demo mission is available yet.")
+
+    try:
+        task = json.loads(row["description"])
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=500, detail="Demo mission data is unreadable.")
+
+    detections = [dict(d, image_url=_proxy_crop_url(d.get("image_url")))
+                  for d in task.get("detections", []) if d.get("box")]
+    detections.sort(key=lambda d: d.get("timestamp_s", 0))
+
+    # Pins ship every sighting they were averaged from, which is most of the
+    # payload and none of it is used on a phone beyond the count.
+    pins = [{
+        "id": c.get("id"),
+        "class": c.get("class"),
+        "max_confidence": c.get("max_confidence"),
+        "avg_latitude": c.get("avg_latitude"),
+        "avg_longitude": c.get("avg_longitude"),
+        "image_url": _proxy_crop_url(c.get("image_url")),
+        "sighting_count": len(c.get("sightings") or []),
+    } for c in task.get("clusters", [])]
+
+    return {
+        "mission_id": row["id"],
+        "title": row.get("title") or "Coastal patrol",
+        "location": settings.SAMPLE_LOCATION_LABEL,
+        "mission_date": row.get("mission_date"),
+        "video_url": settings.SAMPLE_PREVIEW_URL,
+        "poster_url": settings.SAMPLE_POSTER_URL,
+        "duration_s": task.get("duration_s", 0),
+        "detections": detections,
+        "pins": pins,
+        "flight_path": task.get("flight_path", [])[::10],  # thinned for mobile
+        "sahi": task.get("sahi", {}),
+        "altitude": task.get("altitude"),
+    }
+
 
 @router.get("/process/signed-upload-url")
 async def get_signed_upload_url(filename: str):
@@ -390,13 +921,25 @@ async def process_flight_data(
     video_url: Optional[str] = Form(None),
     supabase_video_path: Optional[str] = Form(None),
     gcs_video_path: Optional[str] = Form(None),
-    telemetry: UploadFile = File(...),
-    model_name: Optional[str] = Form("solar_panel.pt"),
-    custom_model: Optional[UploadFile] = File(None),
+    telemetry: Optional[UploadFile] = File(None),
+    use_sample: bool = Form(False),
+    # Weights are chosen by name from the server's models directory. There is
+    # deliberately no upload and no URL: a .pt is pickled Python, so letting a
+    # request supply the bytes — or an address to fetch them from — is remote
+    # code execution. Install models with `python -m model_source install`.
+    model_name: Optional[str] = Form(None),
     interval_ms: int = Form(1000),
-    min_confidence: float = Form(0.35),
+    # 0.40 matches the model's mAP and the dashboard slider's default, so a
+    # direct API call and a run started from the station behave the same. The
+    # station used to send 0.70, which quietly discarded most of the finds.
+    min_confidence: float = Form(0.40),
     mission_title: Optional[str] = Form(None),
-    mission_date: Optional[str] = Form(None)
+    mission_date: Optional[str] = Form(None),
+    sahi_enabled: bool = Form(True),
+    slice_size: int = Form(512),
+    overlap_ratio: float = Form(0.2),
+    workers: Optional[int] = Form(None),
+    include_full_frame: bool = Form(True)
 ):
     """
     Ingests video and telemetry log and triggers YOLO + georeferencing background task.
@@ -410,13 +953,36 @@ async def process_flight_data(
         temp_dir = os.path.join(os.path.dirname(__file__), "temp_uploads")
     os.makedirs(temp_dir, exist_ok=True)
     
-    if not video and not video_url and not gcs_video_path:
+    # One-click demo: the bundled East Coast footage already lives on the server,
+    # so there is nothing to upload. Copy it into the temp dir first — the worker
+    # deletes its inputs when it finishes, which would otherwise consume the
+    # shipped sample on the first run.
+    if use_sample:
+        import shutil
+        static_dir = os.path.join(os.path.dirname(__file__), "static")
+        sample_video = os.path.join(static_dir, "sample.mp4")
+        sample_srt = os.path.join(static_dir, "sample.srt")
+        missing = [p for p in (sample_video, sample_srt) if not os.path.exists(p)]
+        if missing:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Sample footage is not installed on this server: {', '.join(os.path.basename(m) for m in missing)}"
+            )
+
+        video_path = os.path.join(temp_dir, f"sample_{uuid.uuid4()}.mp4")
+        telemetry_path = os.path.join(temp_dir, f"sample_{uuid.uuid4()}.srt")
+        shutil.copyfile(sample_video, video_path)
+        shutil.copyfile(sample_srt, telemetry_path)
+        print(f"✅ [FastAPI] Sample run staged from {static_dir}")
+
+    elif not video and not video_url and not gcs_video_path:
         raise HTTPException(status_code=400, detail="Either video file upload, video_url, or gcs_video_path is required.")
-        
-    if video:
-        video_path = os.path.join(temp_dir, f"{uuid.uuid4()}_{video.filename}")
-        with open(video_path, "wb") as f:
-            f.write(await video.read())
+
+    if use_sample:
+        pass  # paths already staged above
+    elif video:
+        video_path = os.path.join(temp_dir, f"{uuid.uuid4()}_{safe_upload_name(video.filename)}")
+        await stream_upload_to(video, video_path)
     elif gcs_video_path:
         if not gcs_client:
             raise HTTPException(status_code=400, detail="Google Cloud Storage client is not initialized.")
@@ -455,31 +1021,35 @@ async def process_flight_data(
                 os.remove(video_path)
             raise HTTPException(status_code=500, detail=f"Error downloading video from URL: {str(e)}")
         
-    telemetry_path = os.path.join(temp_dir, f"{uuid.uuid4()}_{telemetry.filename}")
-    with open(telemetry_path, "wb") as f:
-        f.write(await telemetry.read())
-        
-    # Determine YOLO model path
-    model_path = model_name
-    if model_name == "custom":
-        if custom_model and custom_model.filename:
-            if not custom_model.filename.lower().endswith('.pt'):
-                if os.path.exists(video_path):
-                    os.remove(video_path)
-                if os.path.exists(telemetry_path):
-                    os.remove(telemetry_path)
-                raise HTTPException(status_code=400, detail="Only .pt (PyTorch) model weights files are allowed.")
-            custom_model_path = os.path.join(temp_dir, f"{uuid.uuid4()}_{custom_model.filename}")
-            with open(custom_model_path, "wb") as f:
-                f.write(await custom_model.read())
-            model_path = custom_model_path
-        else:
+    if not use_sample:
+        if not telemetry or not telemetry.filename:
             if os.path.exists(video_path):
                 os.remove(video_path)
-            if os.path.exists(telemetry_path):
-                os.remove(telemetry_path)
-            raise HTTPException(status_code=400, detail="Custom model weights file (.pt) is required when custom model option is selected.")
-        
+            raise HTTPException(status_code=400, detail="A telemetry log (.srt or .csv) is required.")
+        telemetry_path = os.path.join(temp_dir, f"{uuid.uuid4()}_{safe_upload_name(telemetry.filename)}")
+        await stream_upload_to(telemetry, telemetry_path)
+
+
+    # Resolve the weights against the models directory. `resolve_local_model`
+    # compares the name to the real listing, so neither a traversal nor a
+    # fabricated name can reach torch.load.
+    from model_source import resolve_local_model, list_available_models
+
+    chosen = (model_name or settings.DEFAULT_MODEL_NAME or "").strip()
+    if not chosen:
+        installed = list_available_models()
+        chosen = installed[0]["name"] if installed else ""
+
+    try:
+        model_path = resolve_local_model(chosen)
+    except ValueError as e:
+        if os.path.exists(video_path):
+            os.remove(video_path)
+        if not use_sample and telemetry_path and os.path.exists(telemetry_path):
+            os.remove(telemetry_path)
+        raise HTTPException(status_code=400, detail=str(e))
+
+
     # Create the mission in Supabase
     mission_id = None
     if supabase_client:
@@ -507,11 +1077,136 @@ async def process_flight_data(
         min_confidence=min_confidence,
         mission_id=mission_id,
         supabase_video_path=supabase_video_path,
-        gcs_video_path=gcs_video_path
+        gcs_video_path=gcs_video_path,
+        sahi_enabled=sahi_enabled,
+        slice_size=slice_size,
+        overlap_ratio=overlap_ratio,
+        workers=workers,
+        include_full_frame=include_full_frame
     )
-    
+
     return {"task_id": task_id, "status": "pending"}
 
+
+
+# --- Government Agency Evidence Export ---
+
+def _load_export_data(mission_id: Optional[str] = None):
+    """
+    Gathers the detections and mission metadata backing an export.
+
+    Falls back to the in-flight task's clusters when the database is unavailable,
+    so an export still works in mock/offline mode during a demo.
+    """
+    pins: List[Dict[str, Any]] = []
+    mission: Dict[str, Any] = {}
+
+    if supabase_client:
+        try:
+            query = supabase_client.table("litter_pins").select("*")
+            if mission_id:
+                query = query.eq("mission_id", mission_id)
+            res = query.order("detected_at", desc=False).execute()
+            pins = res.data or []
+        except Exception as e:
+            print(f"⚠️ Export pin query failed: {e}")
+
+        if mission_id:
+            try:
+                m_res = supabase_client.table("missions").select("id,title,mission_date").eq("id", mission_id).execute()
+                if m_res.data:
+                    mission = m_res.data[0]
+            except Exception as e:
+                print(f"⚠️ Export mission query failed: {e}")
+
+    if not pins:
+        # In-memory fallback: the clusters of the task that owns this mission.
+        # These are genuinely that survey's detections, so attributing them to the
+        # mission is correct.
+        from processing_task import PROCESSING_TASKS
+        task = PROCESSING_TASKS.get(mission_id) if mission_id else None
+        if task and task.get("clusters"):
+            pins = [{
+                "id": c["db_pin_id"],
+                "latitude": c["avg_latitude"],
+                "longitude": c["avg_longitude"],
+                "confidence": c["max_confidence"],
+                "image_url": c.get("image_url"),
+                "status": "detected",
+                "detected_at": None,
+            } for c in task["clusters"]]
+        elif MOCK_PINS and not mission_id:
+            # The mock store is only safe for an unscoped export. Pins land there
+            # when a database write failed, so they belong to no known mission —
+            # stamping them with a specific mission's title and date would put
+            # unrelated detections into a document sent to a government agency.
+            pins = list(MOCK_PINS)
+
+    return pins, mission
+
+
+def _export_filename(mission: Dict[str, Any], extension: str) -> str:
+    """Builds a descriptive, filesystem-safe download name."""
+    raw = mission.get("title") or "beach_litter_survey"
+    safe = "".join(ch if ch.isalnum() or ch in "-_ " else "" for ch in raw).strip().replace(" ", "_")
+    stamp = datetime.datetime.utcnow().strftime("%Y%m%d")
+    return f"{safe or 'beach_litter_survey'}_{stamp}.{extension}"
+
+
+@router.get("/export/summary")
+async def export_summary(mission_id: Optional[str] = None):
+    """
+    Preview of what an export would contain.
+
+    The dashboard calls this to show record counts and survey extent before the
+    operator commits to a download.
+    """
+    from exporters import summarise
+
+    pins, mission = _load_export_data(mission_id)
+    stats = summarise(pins)
+    stats["mission_title"] = mission.get("title", "Unassigned Patrol")
+    stats["mission_date"] = mission.get("mission_date")
+    stats["formats"] = ["csv", "geojson", "pdf"]
+    return stats
+
+
+@router.get("/export/{export_format}")
+async def export_detections(export_format: str, mission_id: Optional[str] = None):
+    """
+    Exports mission detections for sharing with government agencies.
+
+    Supported formats: csv (spreadsheet//database ingest), geojson (QGIS, ArcGIS,
+    Google Earth), pdf (filed situation report).
+    """
+    from exporters import build_csv, build_geojson, build_pdf
+
+    export_format = export_format.lower()
+    if export_format not in ("csv", "geojson", "pdf"):
+        raise HTTPException(status_code=400, detail=f"Unsupported export format '{export_format}'. Use csv, geojson or pdf.")
+
+    pins, mission = _load_export_data(mission_id)
+    if not pins:
+        raise HTTPException(status_code=404, detail="No detections available to export for this mission.")
+
+    filename = _export_filename(mission, export_format)
+    disposition = {"Content-Disposition": f'attachment; filename="{filename}"'}
+
+    if export_format == "csv":
+        return Response(content=build_csv(pins, mission), media_type="text/csv", headers=disposition)
+
+    if export_format == "geojson":
+        return JSONResponse(
+            content=build_geojson(pins, mission),
+            media_type="application/geo+json",
+            headers=disposition,
+        )
+
+    try:
+        pdf_bytes = build_pdf(pins, mission)
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    return Response(content=pdf_bytes, media_type="application/pdf", headers=disposition)
 
 
 @router.get("/process/status/{task_id}")
