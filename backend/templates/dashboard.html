@@ -2945,11 +2945,13 @@
         // Validate first step form inputs
         function checkStep1Validity() {
             const nextBtn = document.getElementById('step-1-next-btn');
-            if (videoFile && telemetryFile) {
-                nextBtn.removeAttribute('disabled');
-            } else {
-                nextBtn.setAttribute('disabled', 'true');
-            }
+            // A file over the edge limit cannot be uploaded through this address
+            // at all — it is rejected before the station sees it. Refusing here
+            // is kinder than letting someone configure a run and wait through a
+            // transfer that is guaranteed to fail.
+            const ok = videoFile && telemetryFile && !videoTooLargeForThisUrl(videoFile);
+            if (ok) nextBtn.removeAttribute('disabled');
+            else nextBtn.setAttribute('disabled', 'true');
         }
 
         // File Selection Handlers
@@ -2964,26 +2966,29 @@
             return /coastalpatrol\.app$/i.test(location.hostname);
         }
 
+        function videoTooLargeForThisUrl(file) {
+            if (!file || !servedThroughCloudflare()) return false;
+            return (file.size / 1048576) > CF_UPLOAD_LIMIT_MB - 5;
+        }
+
         function warnIfTooLargeForThisUrl(file) {
             const box = document.getElementById('video-size-warning');
             if (!box) return;
             const mb = file ? file.size / 1048576 : 0;
-            const tooBig = file && servedThroughCloudflare() && mb > CF_UPLOAD_LIMIT_MB - 5;
+            const tooBig = videoTooLargeForThisUrl(file);
 
             box.style.display = tooBig ? 'block' : 'none';
             if (tooBig) {
                 box.innerHTML =
-                    `<strong>⚠️ This file is too large to upload through this address.</strong><br>` +
-                    `${mb.toFixed(0)} MB exceeds the ~${CF_UPLOAD_LIMIT_MB} MB limit on ` +
-                    `<code>${location.hostname}</code>. The upload would be rejected before it ` +
-                    `reaches the station.<br><br>` +
-                    `<strong>What to do:</strong> open this dashboard on the processing station's ` +
-                    `direct address (RunPod &rarr; Connect &rarr; HTTP 8000) and upload there — ` +
-                    `no limit applies. Or press <em>Run this sample</em> to use the footage ` +
-                    `already on the station.`;
+                    `<strong>⛔ This file cannot be uploaded through this address.</strong><br>` +
+                    `${mb.toFixed(0)} MB is over the ~${CF_UPLOAD_LIMIT_MB} MB limit on ` +
+                    `<code>${location.hostname}</code>. It would be rejected before reaching the ` +
+                    `station, so the video would never be processed.<br><br>` +
+                    `<strong>Use one of these instead:</strong><br>` +
+                    `• Open this dashboard on the station's direct address ` +
+                    `(RunPod &rarr; Connect &rarr; HTTP 8000) — no limit applies there.<br>` +
+                    `• Or press <em>Run this sample</em> to use the footage already on the station.`;
             }
-            // Nothing is blocked: the operator may know something we do not, and
-            // the 413 handler explains it if they go ahead anyway.
         }
 
         function handleVideoSelected(input) {
@@ -3509,8 +3514,7 @@
             // edge — the station never sees it, so nothing in the server log
             // explains the failure. Say so before spending minutes on a
             // transfer that cannot arrive.
-            const viaCloudflare = /coastalpatrol\.app$/i.test(location.hostname);
-            if (viaCloudflare && sizeMB > 95) {
+            if (videoTooLargeForThisUrl(videoFileObj)) {
                 addTerminalLine(`⚠️ ${sizeMB.toFixed(0)} MB is over Cloudflare's ~100 MB upload limit `
                               + `for this hostname.`, 'error');
                 addTerminalLine(`   Upload from the pod's direct URL instead `
