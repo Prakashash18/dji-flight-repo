@@ -75,6 +75,30 @@ def detect_device() -> str:
     return "cpu"
 
 
+# Rough VRAM cost of one worker: model, CUDA context and slice buffers.
+CUDA_WORKER_VRAM_GB = 1.5
+
+
+def _cuda_worker_default(cores: int) -> int:
+    """
+    How many feeder processes to run on a discrete GPU.
+
+    Sized from free VRAM rather than a fixed number, because the old constant of
+    2 was tuned on unified memory and left a 32 GB card 91% empty. Kept well
+    under what the VRAM allows — beyond a handful the returns flatten and the
+    parent still has to decode and georeference every frame.
+    """
+    try:
+        import torch
+        if torch.cuda.is_available():
+            free_gb = torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)
+            by_vram = int(free_gb * 0.6 // CUDA_WORKER_VRAM_GB)
+            return max(2, min(by_vram, max(2, cores // 4), 8))
+    except Exception:
+        pass
+    return 4
+
+
 def plan_execution(requested_workers: Optional[int] = None, device: Optional[str] = None):
     """
     Chooses device, worker count and tile batch size together.
@@ -100,11 +124,23 @@ def plan_execution(requested_workers: Optional[int] = None, device: Optional[str
     device = device or detect_device()
     cores = os.cpu_count() or 4
 
-    if device in ("mps", "cuda"):
-        # The accelerator is the bottleneck; a couple of feeder processes is plenty.
+    if device == "cuda":
+        # A discrete GPU is not the bottleneck here — latency is. SAHI infers one
+        # 512px slice at a time, so each of the ~60 tiles per frame is its own
+        # small forward pass and the card spends most of its time waiting on
+        # Python and kernel-launch overhead rather than computing. Measured on an
+        # RTX PRO 4500: 2 workers gave 53 tiles/s at 41% peak utilisation and
+        # 2.9 GB of 32 GB used. The fix is more concurrent streams, not a bigger
+        # card. Each worker costs roughly 1.2 GB of VRAM.
+        default = _cuda_worker_default(cores)
+        workers = requested_workers if (requested_workers and requested_workers > 0) else default
+        return device, max(1, min(workers, 16)), 16
+
+    if device == "mps":
+        # Unified memory: extra processes contend for the same pool and the same
+        # GPU, and past 2 it measured slower. Left as it was.
         workers = requested_workers if (requested_workers and requested_workers > 0) else 2
-        workers = max(1, min(workers, 4))
-        return device, workers, 16
+        return device, max(1, min(workers, 4)), 16
 
     # CPU: one process per core, leaving headroom for the server and reader thread.
     workers = requested_workers if (requested_workers and requested_workers > 0) else max(1, cores - 2)
