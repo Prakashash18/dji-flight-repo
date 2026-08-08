@@ -18,26 +18,42 @@ TEMPLATES_DIR = os.path.join(os.path.dirname(__file__), "templates")
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
 
 
-# Import Supabase client if available
-supabase_client = None
-if settings.SUPABASE_URL and settings.SUPABASE_KEY:
-    try:
-        from supabase import create_client, Client
-        supabase_client: Client = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
-        print("🔌 [FastAPI] Supabase client initialized successfully.")
-    except Exception as e:
-        print(f"⚠️ [FastAPI] Failed to initialize Supabase client: {e}. Falling back to In-Memory DB.")
-else:
-    print("ℹ️ [FastAPI] Supabase credentials missing. Running in In-Memory Mock DB mode.")
+# --- Storage -----------------------------------------------------------------
+# Everything a patrol produces now lives on this machine: crops in
+# CROP_CACHE_DIR, annotated frames in frame_cache, the finished mission in
+# mission_store. One flight runs at a time and the audience only ever needs the
+# current one or the last one, so a database on another continent bought nothing
+# and cost a great deal — a round trip per detection, `Server disconnected`
+# under load, thumbnails 502'ing and phones retrying them in a loop.
+#
+# The clients stay None so the `if supabase_client:` guards throughout simply
+# skip. Set USE_CLOUD_STORAGE=1 to put the old behaviour back, if a future
+# deployment genuinely needs shared state across machines.
+USE_CLOUD_STORAGE = os.environ.get("USE_CLOUD_STORAGE", "").lower() in ("1", "true", "yes")
 
-# Import Google Cloud Storage client
+supabase_client = None
 gcs_client = None
-try:
-    from google.cloud import storage
-    gcs_client = storage.Client()
-    print("🔌 [FastAPI] Google Cloud Storage client initialized successfully.")
-except Exception as e:
-    print(f"⚠️ [FastAPI] Failed to initialize GCS client: {e}. Signed URL generation will fail.")
+
+if not USE_CLOUD_STORAGE:
+    print("💾 [FastAPI] Local storage mode: crops, frames and the last mission "
+          "are kept on this machine. No Supabase or GCS.")
+else:
+    if settings.SUPABASE_URL and settings.SUPABASE_KEY:
+        try:
+            from supabase import create_client, Client
+            supabase_client: Client = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
+            print("🔌 [FastAPI] Supabase client initialized successfully.")
+        except Exception as e:
+            print(f"⚠️ [FastAPI] Failed to initialize Supabase client: {e}. Falling back to In-Memory DB.")
+    else:
+        print("ℹ️ [FastAPI] Supabase credentials missing. Running in In-Memory Mock DB mode.")
+
+    try:
+        from google.cloud import storage
+        gcs_client = storage.Client()
+        print("🔌 [FastAPI] Google Cloud Storage client initialized successfully.")
+    except Exception as e:
+        print(f"⚠️ [FastAPI] Failed to initialize GCS client: {e}. Signed URL generation will fail.")
 
 router = APIRouter()
 sealion = SeaLionClient()
@@ -683,10 +699,16 @@ def _active_task() -> Optional[dict]:
         # Newest first, so a fresh flight takes over the crowd's screens.
         return running[-1]
 
-    # Nothing running: fall back to the most recent in-memory task so the page
-    # still shows the flight that just finished rather than going blank.
+    # Nothing running: the flight that just finished, still in memory.
     finished = [t for t in PROCESSING_TASKS.values() if t.get("detections")]
-    return finished[-1] if finished else None
+    if finished:
+        return finished[-1]
+
+    # Nothing in memory either — first load after a restart. The last patrol was
+    # written to disk when it ended, so the page shows real work rather than an
+    # empty screen.
+    import local_store
+    return local_store.load_mission()
 
 
 # A crowd scanning the QR at the same moment all request `since=0`, and every

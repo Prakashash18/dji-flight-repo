@@ -144,29 +144,16 @@ SUPABASE_IMAGE_BUCKET = "litter-images"
 
 def plan_crop_destination(bucket_name: str):
     """
-    Chooses where a detection crop will live, and returns (backend, object_path, url).
+    Where a detection crop lives, as (backend, object_path, url).
 
-    Crops used to be uploaded only when a GCS client existed. Everywhere else the
-    code still minted a `mock-storage.local` URL and dropped the JPEG on the floor,
-    so every pin in the dashboard and the mobile app rendered as a broken image.
-    Supabase Storage is already provisioned for this project, so it serves as the
-    fallback rather than a dead link.
+    Always this machine. Crops used to go to GCS or Supabase Storage and the
+    served URL pointed back out at them, so displaying a thumbnail meant a round
+    trip to another continent — which failed often enough under a run's write
+    load that most pins showed no image. The bytes are produced here; they stay
+    here, and `/api/crops` serves them off disk.
     """
-    from routes import supabase_client, gcs_client
-
     object_path = f"detections/{uuid.uuid4()}_detection.jpg"
-
-    if gcs_client:
-        return "gcs", object_path, f"https://storage.googleapis.com/{bucket_name}/{object_path}"
-
-    if supabase_client:
-        base = settings.SUPABASE_URL.rstrip("/")
-        return ("supabase", object_path,
-                f"{base}/storage/v1/object/public/{SUPABASE_IMAGE_BUCKET}/{object_path}")
-
-    # No storage configured at all: say so honestly rather than inventing a URL
-    # that looks real and 404s.
-    return None, None, ""
+    return "local", object_path, f"/api/crops/{object_path}"
 
 
 def cache_crop_locally(object_path: Optional[str], jpeg_bytes: Optional[bytes]) -> bool:
@@ -197,57 +184,21 @@ def cache_crop_locally(object_path: Optional[str], jpeg_bytes: Optional[bytes]) 
 
 def upload_crop(backend: Optional[str], bucket_name: str, object_path: Optional[str],
                 jpeg_bytes: Optional[bytes]) -> bool:
-    """Uploads one detection crop to whichever storage backend was planned."""
-    if not (backend and object_path and jpeg_bytes):
-        return False
-
-    # Local copy first: the upload is best-effort, but the demo must show the
-    # thumbnail whether or not object storage is reachable.
-    cache_crop_locally(object_path, jpeg_bytes)
-
-    from routes import supabase_client, gcs_client
-
-    if backend == "gcs" and gcs_client:
-        try:
-            gcs_client.bucket(bucket_name).blob(object_path).upload_from_string(
-                jpeg_bytes, content_type="image/jpeg")
-            return True
-        except Exception as e:
-            print(f"⚠️ Detection crop upload to GCS failed: {e}")
-            return False
-
-    if backend == "supabase" and supabase_client:
-        try:
-            supabase_client.storage.from_(SUPABASE_IMAGE_BUCKET).upload(
-                object_path, jpeg_bytes, {"content-type": "image/jpeg", "upsert": "true"})
-            return True
-        except Exception as e:
-            print(f"⚠️ Detection crop upload to Supabase Storage failed: {e}")
-            return False
-
-    return False
+    """Store one detection crop. Local disk is the only backend now."""
+    return cache_crop_locally(object_path, jpeg_bytes)
 
 
 def upload_and_save_pin_task(bucket_name: str, unique_filename: Optional[str], jpeg_bytes: Optional[bytes], pin_data: dict, is_update: bool = False, storage_backend: Optional[str] = None):
-    """Background task to upload a detection crop and insert/update the pin row."""
-    from routes import supabase_client, gcs_client
-    # 1. Upload the crop to the storage backend chosen when the URL was minted.
-    upload_crop(storage_backend, bucket_name, unique_filename, jpeg_bytes)
+    """
+    Write one detection crop to disk.
 
-    # 2. Save/Update pin in Supabase DB
-    if supabase_client:
-        try:
-            if is_update:
-                supabase_client.table("litter_pins").update({
-                    "latitude": pin_data["latitude"],
-                    "longitude": pin_data["longitude"],
-                    "confidence": pin_data["confidence"],
-                    "image_url": pin_data["image_url"]
-                }).eq("id", pin_data["id"]).execute()
-            else:
-                supabase_client.table("litter_pins").insert(pin_data).execute()
-        except Exception as e:
-            print(f"⚠️ Background Supabase database operation failed: {e}")
+    The pin row itself is no longer sent anywhere: the live feed, the dashboard
+    and the export all read the in-memory task, and the finished patrol is saved
+    to disk when the run ends. The database insert that used to live here was
+    pure overhead — one round trip per detection, several hundred per flight,
+    for data nothing read back.
+    """
+    upload_crop(storage_backend, bucket_name, unique_filename, jpeg_bytes)
 
 def haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     """Calculates the distance in meters between two GPS coordinates using the Haversine formula."""
@@ -355,35 +306,19 @@ def add_log(task_id: str, message: str):
         print(f"[Task {task_id}] {message}")
 
 def persist_task_status_to_db(task_id: str, mission_id: Optional[str]):
-    """Saves the current processing task status to the database (mission description)."""
-    if not mission_id or task_id not in PROCESSING_TASKS:
+    """
+    Snapshot the run to disk so it survives a restart.
+
+    Used to update a `description` column in Supabase every few seconds with the
+    whole task serialised — a large write to another continent on a timer. The
+    same snapshot now goes to a local file, which is what the phone view falls
+    back to when nothing is running.
+    """
+    task = PROCESSING_TASKS.get(task_id)
+    if not task:
         return
-        
-    from routes import supabase_client
-    if supabase_client:
-        try:
-            import json
-            task_data = PROCESSING_TASKS[task_id]
-            serialized = json.dumps({
-                "task_id": task_data["task_id"],
-                "status": task_data["status"],
-                "progress_percent": task_data["progress_percent"],
-                "current_time_s": task_data["current_time_s"],
-                "duration_s": task_data["duration_s"],
-                "console_logs": task_data["console_logs"],
-                "detections": task_data["detections"],
-                "clusters": task_data["clusters"],
-                "flight_path": task_data["flight_path"],
-                "stages": task_data.get("stages", []),
-                "sahi": task_data.get("sahi", {}),
-                "altitude": task_data.get("altitude"),
-                "error": task_data["error"]
-            })
-            supabase_client.table("missions").update({
-                "description": serialized
-            }).eq("id", mission_id).execute()
-        except Exception as e:
-            print(f"⚠️ Failed to persist task status to DB: {e}")
+    import local_store
+    local_store.save_mission(task)
 
 def start_processing_task(video_path: str, telemetry_path: str, model_path: str, interval_ms: int = 1000,
                           min_confidence: float = 0.35, mission_id: Optional[str] = None,
@@ -392,6 +327,17 @@ def start_processing_task(video_path: str, telemetry_path: str, model_path: str,
                           workers: Optional[int] = None, include_full_frame: bool = True) -> str:
     """Creates a new task and launches the processing thread."""
     task_id = mission_id if mission_id else str(uuid.uuid4())
+
+    # One patrol at a time. Clear the previous run's stored mission, annotated
+    # frames and crops before this one starts, so the audience never sees two
+    # flights mixed together and the caches do not grow for the life of the box.
+    import local_store
+    before_mb = local_store.disk_usage_mb()
+    local_store.purge_previous(keep_task_id=task_id)
+    PROCESSING_TASKS.clear()
+    if before_mb:
+        print(f"🧹 Cleared the previous patrol ({before_mb} MB).")
+
     device, resolved_workers, batch_size = plan_execution(workers)
     PROCESSING_TASKS[task_id] = {
         "task_id": task_id,

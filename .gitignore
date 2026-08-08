@@ -61,3 +61,6 @@ backend/crop_cache/
 deploy/logs/
 backend/live_tail.json
 scratch/
+
+# Local mission store and caches (regenerated per run)
+backend/mission_store/
