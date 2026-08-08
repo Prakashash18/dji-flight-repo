@@ -3351,7 +3351,15 @@
         }
 
         async function submitProcessingRequest(formData, onError) {
-            if (!ensureStationKey()) { if (onError) onError(); return; }
+            // A refusal must be visible. This used to return quietly, so a
+            // dismissed key prompt looked exactly like a launch that vanished.
+            if (!ensureStationKey()) {
+                addTerminalLine('⛔ Launch cancelled — an operator key is required to run a patrol.', 'error');
+                document.getElementById('task-status-label').textContent = 'Status: NOT STARTED';
+                document.getElementById('new-session-btn').style.display = 'inline-block';
+                if (onError) onError();
+                return;
+            }
             try {
                 const data = await postProcessingRequest(formData);
                 currentTaskId = data.task_id;
@@ -3434,6 +3442,11 @@
                 goToStep(1);
                 return;
             }
+
+            // Ask before prepareRunUI() switches to the progress screen. Doing it
+            // afterwards left the operator staring at an empty terminal with no
+            // idea the launch had been refused.
+            if (!(await requireOperator())) return;
 
 
 
