@@ -13,7 +13,7 @@ say()  { printf "\n\033[1m==> %s\033[0m\n" "$1"; }
 warn() { printf "\033[33m    !! %s\033[0m\n" "$1"; }
 
 say "Step 1 — does this GPU actually run kernels?"
-if ! PYTHON=python3 ./deploy/gpu-check.sh; then
+if ! PYTHON=python3 "$ROOT/deploy/gpu-check.sh"; then
   warn "Stopping. Installing on a GPU that cannot run kernels wastes your time"
   warn "and hides the real problem behind a pile of unrelated output."
   warn "Redeploy on a template whose CUDA matches the card, or pick a"
@@ -51,7 +51,10 @@ if [ "$TORCH_BEFORE" != "$TORCH_AFTER" ]; then
 fi
 
 say "Step 5 — re-prove the GPU with the final environment"
-PYTHON="$PY" ./deploy/gpu-check.sh || {
+# Absolute: step 2 cd's into backend and never comes back, so a
+# cwd-relative path here resolved to backend/deploy/ and the failure was
+# reported as a displaced CUDA library rather than a missing file.
+PYTHON="$PY" "$ROOT/deploy/gpu-check.sh" || {
   warn "The GPU passed in step 1 but fails now. Something in the install"
   warn "displaced a CUDA library. Redeploy and re-run."
   exit 1

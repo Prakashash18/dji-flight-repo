@@ -9,8 +9,10 @@
 # the moment you ask it to compute. Run a real matmul and a real conv.
 set -uo pipefail
 
+HERE="$(cd "$(dirname "$0")" && pwd)"
 PY="${PYTHON:-python3}"
-[ -x "./backend/venv/bin/python" ] && PY="./backend/venv/bin/python"
+# Resolve against the script, not the caller's cwd.
+[ -x "$HERE/../backend/venv/bin/python" ] && PY="$HERE/../backend/venv/bin/python"
 
 "$PY" - <<'EOF'
 import sys
