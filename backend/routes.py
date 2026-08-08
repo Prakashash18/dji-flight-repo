@@ -977,6 +977,7 @@ async def get_signed_upload_url(filename: str):
 
 @router.post("/process")
 async def process_flight_data(
+    request: Request,
     video: Optional[UploadFile] = File(None),
     video_url: Optional[str] = Form(None),
     supabase_video_path: Optional[str] = Form(None),
@@ -1004,8 +1005,36 @@ async def process_flight_data(
     """
     Ingests video and telemetry log and triggers YOLO + georeferencing background task.
     """
-    from processing_task import start_processing_task
-    
+    from processing_task import start_processing_task, PROCESSING_TASKS
+
+    # Viewing the station is open; launching is not. The dashboard URL is being
+    # handed out alongside the phone demo, so anyone who opens it could otherwise
+    # start a patrol on the GPU — including in the middle of a live one.
+    if settings.STATION_KEY:
+        supplied = request.headers.get("x-station-key", "") if request else ""
+        if supplied != settings.STATION_KEY:
+            raise HTTPException(
+                status_code=403,
+                detail="This station is view-only. Enter the operator key to start a patrol.",
+            )
+
+    # One patrol at a time, enforced here rather than only in the UI. Two
+    # operators on station.coastalpatrol.app can both press Run, and nothing
+    # stopped them: both flights would contend for the same GPU, the worker pool
+    # can deadlock under it, and every watching phone would jump to whichever
+    # started last — mid-story, in front of the audience. The dashboard also
+    # hides the button while a run is live, but that is a courtesy; this is the
+    # part that holds when two clicks land in the same second.
+    active = next((t for t in PROCESSING_TASKS.values()
+                   if t.get("status") == "processing"), None)
+    if active:
+        done = active.get("progress_percent", 0)
+        raise HTTPException(
+            status_code=409,
+            detail=(f"A patrol is already running ({done}% complete). "
+                    f"Wait for it to finish, or open the dashboard to watch it."),
+        )
+
     # Save files temporarily (Cloud Run container environment uses /tmp as writable storage)
     if os.environ.get("K_SERVICE"):
         temp_dir = "/tmp"

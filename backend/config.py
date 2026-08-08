@@ -55,6 +55,12 @@ class Settings:
     SEA_LION_API_URL: str = os.getenv("SEA_LION_API_URL", "https://api.sea-lion.ai/v1")
     
     # Server configuration
+    # Anyone may watch the station; starting a patrol needs this key. Left blank
+    # the station stays fully open, which is right on a laptop and wrong on a
+    # public URL handed to judges — a stranger pressing Run mid-demo takes the
+    # GPU and every watching phone with it.
+    STATION_KEY: str = os.getenv("STATION_KEY", "")
+
     HOST: str = os.getenv("HOST", "0.0.0.0")
     PORT: int = int(os.getenv("PORT", "8000"))
 

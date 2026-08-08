@@ -2050,6 +2050,15 @@
     </style>
 </head>
 <body>
+<!-- Two operators can have this page open at once. When a patrol is already
+     running, say so before the second one presses Run — the endpoint refuses
+     it either way, but discovering that from an error is a poor way to learn. -->
+<div id="busy-banner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:9999;
+     padding:10px 16px;text-align:center;font:700 13px var(--font-ui,sans-serif);
+     color:#0B1020;background:linear-gradient(90deg,#FFD166,#FFB703);
+     box-shadow:0 2px 14px rgba(0,0,0,.35)">
+  <span id="busy-banner-text">A patrol is already running on this station.</span>
+</div>
 
     <!-- Header bar -->
     <header>
@@ -3239,6 +3248,11 @@
             return new Promise((resolve, reject) => {
                 const xhr = new XMLHttpRequest();
                 xhr.open('POST', '/api/process');
+                // Viewing is open, launching is not. The key is remembered per
+                // browser so an operator types it once; a judge who never types
+                // one simply gets a view-only station.
+                const key = localStorage.getItem('stationKey');
+                if (key) xhr.setRequestHeader('X-Station-Key', key);
                 let lastPct = -10;
                 xhr.upload.onprogress = (e) => {
                     if (!e.lengthComputable || e.total < 2 * 1024 * 1024) return;
@@ -3254,6 +3268,13 @@
                     if (xhr.status >= 200 && xhr.status < 300) {
                         try { resolve(JSON.parse(xhr.responseText)); }
                         catch (e) { reject(new Error('Malformed response from server.')); }
+                    } else if (xhr.status === 403) {
+                        localStorage.removeItem('stationKey');
+                        reject(new Error('This station is view-only. Ask the operator for the key, '
+                                       + 'then press Run again to enter it.'));
+                    } else if (xhr.status === 409) {
+                        reject(new Error('A patrol is already running on this station. '
+                                       + 'Wait for it to finish.'));
                     } else {
                         reject(new Error(xhr.responseText || `HTTP ${xhr.status}`));
                     }
@@ -3263,7 +3284,19 @@
             });
         }
 
+        /** Prompt once per browser; blank means the station has no key set. */
+        function ensureStationKey() {
+            if (localStorage.getItem('stationKey')) return true;
+            const k = window.prompt(
+                'Operator key\n\nThis station is view-only without it. '
+              + 'Leave blank if this station has no key set.');
+            if (k === null) return false;              // cancelled
+            if (k.trim()) localStorage.setItem('stationKey', k.trim());
+            return true;
+        }
+
         async function submitProcessingRequest(formData, onError) {
+            if (!ensureStationKey()) { if (onError) onError(); return; }
             try {
                 const data = await postProcessingRequest(formData);
                 currentTaskId = data.task_id;
@@ -3279,6 +3312,46 @@
                 if (onError) onError();
             }
         }
+
+        // --- Station busy state -------------------------------------------
+        // Polled independently of a run so a second operator sees the banner
+        // the moment they open the page, not only after they click.
+        let stationBusy = false;
+
+        function applyBusyState(live, pct) {
+            stationBusy = !!live;
+            const banner = document.getElementById('busy-banner');
+            const text = document.getElementById('busy-banner-text');
+            if (banner) {
+                banner.style.display = live ? 'block' : 'none';
+                if (live && text) {
+                    text.textContent = `A patrol is already running on this station (${pct}% complete) — `
+                                     + `wait for it to finish before starting another.`;
+                }
+            }
+            // Disable rather than hide: a greyed control explains itself, a
+            // vanished one just looks broken.
+            ['run-sample-btn', 'start-processing-btn'].forEach(id => {
+                const el = document.getElementById(id);
+                if (!el) return;
+                el.disabled = live;
+                el.style.opacity = live ? '0.45' : '';
+                el.style.cursor = live ? 'not-allowed' : '';
+                el.title = live ? 'A patrol is already running on this station.' : '';
+            });
+        }
+
+        async function pollStationBusy() {
+            try {
+                const r = await fetch('/api/live?since=999999&pins_since=999999&frames_since=999999',
+                                      { cache: 'no-store' });
+                if (!r.ok) return;
+                const d = await r.json();
+                applyBusyState(!!d.live, d.progress_percent || 0);
+            } catch (e) { /* transient: leave the last known state alone */ }
+        }
+        pollStationBusy();
+        setInterval(pollStationBusy, 3000);
 
         document.getElementById('processing-form').addEventListener('submit', async function(e) {
             e.preventDefault();
