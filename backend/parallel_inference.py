@@ -21,7 +21,29 @@ where the drone revisits the same ground.
 """
 
 import os
+import multiprocessing
 from concurrent.futures import ProcessPoolExecutor
+
+
+def _worker_context():
+    """
+    Start method for the inference workers.
+
+    Linux defaults to `fork`, and a forked child cannot re-initialise CUDA — the
+    parent has already touched the driver by the time the pool is built, so
+    every worker dies with "Cannot re-initialize CUDA in forked subprocess" and
+    the run completes having inferred exactly zero tiles. It reports success,
+    which is worse than crashing.
+
+    macOS has defaulted to `spawn` since 3.8, which is why this never appeared
+    in development and only surfaced on a Linux GPU box. Spawn everywhere: it is
+    the method the pool was actually tested with, and the cost is a couple of
+    seconds of interpreter startup per worker, once per run.
+    """
+    try:
+        return multiprocessing.get_context("spawn")
+    except ValueError:
+        return multiprocessing.get_context()
 from typing import Dict, List, Optional
 
 import cv2
@@ -196,6 +218,7 @@ class SahiInferencePool:
     def __enter__(self) -> "SahiInferencePool":
         self._executor = ProcessPoolExecutor(
             max_workers=self.workers,
+            mp_context=_worker_context(),
             initializer=_init_worker,
             initargs=(self.model_path, self.config),
         )
