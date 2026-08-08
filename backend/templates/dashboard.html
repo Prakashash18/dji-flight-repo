@@ -2148,6 +2148,7 @@
                                 <span class="file-icon">🎬</span>
                                 <span class="success-badge">Selected</span>
                             </div>
+                    <div id="video-size-warning" style="display:none;margin-top:10px;padding:12px 14px;border-radius:10px;font:500 12.5px var(--font-ui,sans-serif);line-height:1.5;color:#3B2300;background:#FFF3CD;border:1px solid #FFC107"></div>
                             <div class="file-info-details">
                                 <h4 id="video-file-info-name" class="file-name-heading">video.mp4</h4>
                                 <p id="video-file-info-size" class="file-size-sub">0.0 MB</p>
@@ -2952,6 +2953,39 @@
         }
 
         // File Selection Handlers
+        // Cloudflare caps request bodies at about 100 MB on Free and Pro. A DJI
+        // flight is routinely ten times that, so the upload dies at the edge and
+        // the station never sees it. Say so when the file is chosen — finding out
+        // after configuring the run and waiting through a doomed transfer is a
+        // miserable way to learn it.
+        const CF_UPLOAD_LIMIT_MB = 100;
+
+        function servedThroughCloudflare() {
+            return /coastalpatrol\.app$/i.test(location.hostname);
+        }
+
+        function warnIfTooLargeForThisUrl(file) {
+            const box = document.getElementById('video-size-warning');
+            if (!box) return;
+            const mb = file ? file.size / 1048576 : 0;
+            const tooBig = file && servedThroughCloudflare() && mb > CF_UPLOAD_LIMIT_MB - 5;
+
+            box.style.display = tooBig ? 'block' : 'none';
+            if (tooBig) {
+                box.innerHTML =
+                    `<strong>⚠️ This file is too large to upload through this address.</strong><br>` +
+                    `${mb.toFixed(0)} MB exceeds the ~${CF_UPLOAD_LIMIT_MB} MB limit on ` +
+                    `<code>${location.hostname}</code>. The upload would be rejected before it ` +
+                    `reaches the station.<br><br>` +
+                    `<strong>What to do:</strong> open this dashboard on the processing station's ` +
+                    `direct address (RunPod &rarr; Connect &rarr; HTTP 8000) and upload there — ` +
+                    `no limit applies. Or press <em>Run this sample</em> to use the footage ` +
+                    `already on the station.`;
+            }
+            // Nothing is blocked: the operator may know something we do not, and
+            // the 413 handler explains it if they go ahead anyway.
+        }
+
         function handleVideoSelected(input) {
             if (input.files && input.files.length > 0) {
                 videoFile = input.files[0];
@@ -2960,6 +2994,7 @@
                 document.getElementById('video-file-info-name').textContent = videoFile.name;
                 document.getElementById('video-file-info-size').textContent = formatBytes(videoFile.size);
                 document.getElementById('video-upload-prompt').style.display = 'none';
+                warnIfTooLargeForThisUrl(videoFile);
             } else {
                 videoFile = null;
                 document.getElementById('video-upload-card').classList.remove('selected');
