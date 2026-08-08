@@ -3327,6 +3327,11 @@
                         localStorage.removeItem('stationKey');
                         reject(new Error('This station is view-only. Ask the operator for the key, '
                                        + 'then press Run again to enter it.'));
+                    } else if (xhr.status === 413) {
+                        reject(new Error('The video is larger than this URL accepts. Cloudflare caps '
+                                       + 'uploads at about 100 MB. Open the station on the pod\'s '
+                                       + 'direct RunPod URL to upload large footage, or use '
+                                       + '"Run this sample".'));
                     } else if (xhr.status === 409) {
                         reject(new Error('A patrol is already running on this station. '
                                        + 'Wait for it to finish.'));
@@ -3461,8 +3466,24 @@
             // so that request could only ever fail. It also went out without the
             // operator key, so it turned into a 403 in the log that looked like
             // the cause of a stalled upload rather than a dead branch.
-            addTerminalLine(`📦 Preparing ${videoFileObj.name} `
-                          + `(${(videoFileObj.size / 1048576).toFixed(0)} MB) for upload...`);
+            const sizeMB = videoFileObj.size / 1048576;
+            addTerminalLine(`📦 Preparing ${videoFileObj.name} (${sizeMB.toFixed(0)} MB) for upload...`);
+
+            // Cloudflare caps request bodies (100 MB on Free and Pro). A DJI
+            // flight is routinely ten times that, and the upload dies at the
+            // edge — the station never sees it, so nothing in the server log
+            // explains the failure. Say so before spending minutes on a
+            // transfer that cannot arrive.
+            const viaCloudflare = /coastalpatrol\.app$/i.test(location.hostname);
+            if (viaCloudflare && sizeMB > 95) {
+                addTerminalLine(`⚠️ ${sizeMB.toFixed(0)} MB is over Cloudflare's ~100 MB upload limit `
+                              + `for this hostname.`, 'error');
+                addTerminalLine(`   Upload from the pod's direct URL instead `
+                              + `(RunPod → Connect → HTTP 8000), or use "Run this sample".`, 'error');
+                document.getElementById('task-status-label').textContent = 'Status: TOO LARGE FOR THIS URL';
+                document.getElementById('new-session-btn').style.display = 'inline-block';
+                return;
+            }
 
             // Build FormData
             const formData = new FormData();
