@@ -81,22 +81,23 @@ EOF
 ## 4. Dependencies
 
 ```bash
-cd /workspace/coastal-patrol/backend
-python -m venv --system-site-packages venv
-./venv/bin/pip install -r requirements.txt
+cd /workspace/coastal-patrol && ./deploy/runpod-setup.sh
 ```
 
-`--system-site-packages` reuses the template's torch instead of downloading
-another 2.5 GB. Confirm the GPU is actually visible — if this says `False`,
-everything below still runs, just ~20x slower:
+Do **not** run `pip install -r requirements.txt` here. That resolves
+`ultralytics`, which pulls a torch of its own choosing and overwrites the
+image's CUDA build — on a Blackwell card that is the only build with sm_120
+kernels, and losing it costs you roughly 20x the speed with no error to show
+for it. The script installs from `requirements-runpod.txt` (torch excluded),
+adds `ultralytics --no-deps`, and diffs the torch version before and after so a
+silent swap is caught rather than discovered mid-demo.
 
-```bash
-./venv/bin/python -c "import torch; print('cuda:', torch.cuda.is_available())"
-```
+Verified on an RTX PRO 4500: `torch 2.8.0+cu128`, kernels
+`sm_70 ... sm_100 sm_120`, real matmul/conv2d/fp16 all pass.
 
 ## 5. Fetch the big files
 
-Edit `deploy/assets.env` with your Drive URLs once, then:
+Edit `deploy/assets.conf` with your Drive URLs once, then:
 
 ```bash
 cd /workspace/coastal-patrol && ./deploy/fetch-assets.sh

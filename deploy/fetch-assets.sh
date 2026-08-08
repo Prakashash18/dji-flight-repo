@@ -9,8 +9,10 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 ROOT="$PWD"
 
+# Named .conf, not .env: the repo gitignores *.env, which silently
+# excluded this file from the first push.
 # shellcheck source=/dev/null
-source "$ROOT/deploy/assets.env"
+source "$ROOT/deploy/assets.conf"
 
 PY="${PYTHON:-$ROOT/backend/venv/bin/python}"
 [ -x "$PY" ] || PY="$(command -v python3)"
@@ -33,7 +35,7 @@ SAMPLE="$ROOT/backend/static/sample.mp4"
 if [ -f "$SAMPLE" ]; then
   echo "    already present: backend/static/sample.mp4 ($(du -h "$SAMPLE" | cut -f1))"
 elif [ -z "${SAMPLE_URL:-}" ] || [[ "$SAMPLE_URL" == *REPLACE_WITH_YOUR* ]]; then
-  warn "SAMPLE_URL not set in deploy/assets.env — skipping."
+  warn "SAMPLE_URL not set in deploy/assets.conf — skipping."
   warn "The pod will start, but 'Run this sample' will 404 until you upload a video."
 else
   echo "    downloading (~486 MB)…"
