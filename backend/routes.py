@@ -538,7 +538,18 @@ async def get_crop(object_path: str):
         r.raise_for_status()
         body = r.content
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Crop upstream failed: {e}")
+        # 404, not 502. A browser treats 502 as a transient server fault and
+        # retries the image, so one unreachable crop became an endless stream of
+        # requests from every phone at once — the log filled with the same few
+        # ids and the app crawled. 404 is cached as "this is not coming" and
+        # asked for once. Short max-age so a later upload can still appear.
+        print(f"⚠️ Crop {object_path} unavailable upstream: {e}")
+        return Response(
+            content=b'{"detail":"crop unavailable"}',
+            status_code=404,
+            media_type="application/json",
+            headers={"Cache-Control": "public, max-age=60"},
+        )
 
     try:
         os.makedirs(os.path.dirname(cached), exist_ok=True)

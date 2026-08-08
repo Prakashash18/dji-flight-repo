@@ -169,11 +169,41 @@ def plan_crop_destination(bucket_name: str):
     return None, None, ""
 
 
+def cache_crop_locally(object_path: Optional[str], jpeg_bytes: Optional[bytes]) -> bool:
+    """
+    Keep a copy of the crop on this machine, under the same path /api/crops serves.
+
+    The bytes are already in hand here, yet the served URL pointed at object
+    storage — so displaying a thumbnail meant a round trip back out to Supabase.
+    When that call fails the endpoint returns 502, the phone shows "no image" and
+    then retries the same crop forever, which is what made the app crawl. Writing
+    the copy now means the common path never leaves the box.
+    """
+    if not (object_path and jpeg_bytes):
+        return False
+    try:
+        from routes import CROP_CACHE_DIR
+        dest = os.path.join(CROP_CACHE_DIR, object_path)
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        tmp = dest + ".part"
+        with open(tmp, "wb") as f:
+            f.write(jpeg_bytes)
+        os.replace(tmp, dest)          # atomic: a reader never sees a half file
+        return True
+    except Exception as e:
+        print(f"⚠️ Could not cache crop locally: {e}")
+        return False
+
+
 def upload_crop(backend: Optional[str], bucket_name: str, object_path: Optional[str],
                 jpeg_bytes: Optional[bytes]) -> bool:
     """Uploads one detection crop to whichever storage backend was planned."""
     if not (backend and object_path and jpeg_bytes):
         return False
+
+    # Local copy first: the upload is best-effort, but the demo must show the
+    # thumbnail whether or not object storage is reachable.
+    cache_crop_locally(object_path, jpeg_bytes)
 
     from routes import supabase_client, gcs_client
 
