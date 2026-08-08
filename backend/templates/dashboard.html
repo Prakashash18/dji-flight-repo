@@ -2122,7 +2122,11 @@
                                 <span>⚡</span>
                             </button>
                             <span class="try-sample-links">
-                                or download the
+                                <!-- Watching should not mean downloading half a gigabyte first.
+                                     Opening the mp4 in a tab lets the browser stream it. -->
+                                <a href="{{ sample_video_url }}" target="_blank" rel="noopener"
+                                   style="font-weight:700">▶ Watch the footage</a>
+                                &nbsp;·&nbsp; or download the
                                 <a href="{{ sample_video_url }}" download>video</a> ·
                                 <a href="{{ sample_telemetry_url }}" download>telemetry</a>
                             </span>
