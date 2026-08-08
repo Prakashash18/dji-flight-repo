@@ -709,6 +709,39 @@ def _derive_live_lists(task: dict):
     return _live_cache["detections"], _live_cache["pins"]
 
 
+# A patrol occupies the station from the moment it is accepted, not from the
+# moment inference starts. The task is created "pending" and only turns
+# "processing" after telemetry, weights, video open and spawning the worker pool
+# — tens of seconds with eight workers. Guards that tested only for "processing"
+# left that entire warm-up as an open window, and a second browser could start a
+# run straight through it.
+ACTIVE_STATUSES = ("pending", "processing")
+
+
+# A patrol that never leaves "pending" means its worker died before it could
+# start — an import failure, an OOM kill, a lost pool. Counting that as busy
+# forever would lock the station out with no way back except a restart, so a
+# pending task stops holding the lock once it is clearly not coming.
+STALE_PENDING_S = 180
+
+
+def _busy_task(tasks) -> Optional[dict]:
+    """The patrol currently occupying the station, if any."""
+    import time as _time
+
+    for t in tasks.values():
+        status = t.get("status")
+        if status == "processing":
+            return t
+        if status == "pending":
+            started = t.get("started_at") or 0
+            if not started or (_time.time() - started) < STALE_PENDING_S:
+                return t
+            print(f"⚠️ Ignoring a patrol stuck pending for "
+                  f"{int(_time.time() - started)}s — the station is free again.")
+    return None
+
+
 def _eta_seconds(task: dict) -> Optional[int]:
     """
     Rough seconds remaining for a running patrol.
@@ -735,7 +768,7 @@ def _active_task() -> Optional[dict]:
     """The mission currently being processed, if any."""
     from processing_task import PROCESSING_TASKS
 
-    running = [t for t in PROCESSING_TASKS.values() if t.get("status") == "processing"]
+    running = [t for t in PROCESSING_TASKS.values() if t.get("status") in ACTIVE_STATUSES]
     if running:
         # Newest first, so a fresh flight takes over the crowd's screens.
         return running[-1]
@@ -823,7 +856,7 @@ async def get_live_state(since: int = 0, pins_since: int = 0, frames_since: int 
         active = stages[-1]
 
     payload = {
-        "live": task.get("status") == "processing",
+        "live": task.get("status") in ACTIVE_STATUSES,
         "status": task.get("status"),
         "mission_id": task.get("task_id"),
         "title": "Live patrol",
@@ -944,8 +977,7 @@ async def station_access(request: Request):
 
     key_ok = (not settings.STATION_KEY) or \
              request.headers.get("x-station-key", "") == settings.STATION_KEY
-    active = next((t for t in PROCESSING_TASKS.values()
-                   if t.get("status") == "processing"), None)
+    active = _busy_task(PROCESSING_TASKS)
     return {
         "key_required": bool(settings.STATION_KEY),
         "key_ok": key_ok,
@@ -1081,8 +1113,7 @@ async def process_flight_data(
     # started last — mid-story, in front of the audience. The dashboard also
     # hides the button while a run is live, but that is a courtesy; this is the
     # part that holds when two clicks land in the same second.
-    active = next((t for t in PROCESSING_TASKS.values()
-                   if t.get("status") == "processing"), None)
+    active = _busy_task(PROCESSING_TASKS)
     if active:
         done = active.get("progress_percent", 0)
         raise HTTPException(
