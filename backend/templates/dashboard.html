@@ -863,6 +863,20 @@
             transition: width 0.3s ease;
         }
 
+        /* Warm-up has no honest percentage: the station is loading telemetry,
+           resolving weights and spawning a worker per slice, and none of that
+           maps to frames done. A bar parked at 0% for those seconds reads as a
+           hang, so it sweeps instead until the first frame lands. */
+        .progress-fill.indeterminate {
+            width: 35% !important;
+            transition: none;
+            animation: progress-sweep 1.3s ease-in-out infinite;
+        }
+        @keyframes progress-sweep {
+            0%   { margin-left: -35%; }
+            100% { margin-left: 100%; }
+        }
+
         .progress-percent {
             font-family: 'JetBrains Mono', monospace;
             font-size: 14px;
@@ -3911,8 +3925,14 @@
                         `pixels wide, and why the frame is scanned in close-ups.`;
                 }
 
-                document.getElementById('task-percent-label').textContent = progressText;
-                document.getElementById('task-progress-fill').style.width = `${data.progress_percent}%`;
+                // Nothing measured yet -> sweep rather than sit at 0%.
+                const warming = (data.progress_percent || 0) === 0
+                                && data.status !== 'completed' && data.status !== 'failed';
+                const fill = document.getElementById('task-progress-fill');
+                fill.classList.toggle('indeterminate', warming);
+                document.getElementById('task-percent-label').textContent =
+                    warming ? 'warming up…' : progressText;
+                if (!warming) fill.style.width = `${data.progress_percent}%`;
                 document.getElementById('task-status-label').textContent = `Status: ${data.status.toUpperCase()}`;
 
                 // Animated pipeline + live SAHI throughput

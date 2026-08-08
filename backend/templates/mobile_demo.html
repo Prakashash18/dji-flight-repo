@@ -132,6 +132,27 @@
 
       .starting-card{position:absolute;left:16px;right:16px;bottom:200px;z-index:26;display:flex;flex-direction:column;align-items:center;gap:4px;padding:18px 16px 14px;border-radius:18px;text-align:center;background:var(--surface);border:1px solid var(--amber-line);box-shadow:var(--sh-3);opacity:0;pointer-events:none;transform:translateY(10px);transition:opacity .3s,transform .3s}
       .starting-card.show{opacity:1;transform:none}
+
+      /* Warm-up. Loading the model across eight workers takes a real number of
+         seconds, and the phone deliberately holds on the first frame until the
+         detector has produced one — so without this the screen is a still image
+         and the demo looks frozen at exactly the moment everyone is watching.
+         The station already sends the stage on every poll; this shows it. */
+      .prep{position:absolute;left:16px;right:16px;top:50%;transform:translateY(-50%);z-index:24;padding:20px 18px;border-radius:20px;text-align:center;background:var(--surface);border:1px solid var(--line);box-shadow:var(--sh-3);opacity:0;pointer-events:none;transition:opacity .35s}
+      .prep.show{opacity:1}
+      .prep-badge{display:inline-block;font:800 10px var(--font-ui);letter-spacing:.12em;text-transform:uppercase;color:var(--teal);margin-bottom:8px}
+      .prep b{display:block;font:800 17px var(--font-display);color:var(--ink);margin-bottom:6px}
+      .prep-detail{font:500 12px var(--font-ui);color:var(--ink-2);line-height:1.45}
+      .prep-metric{display:inline-block;margin-top:10px;font:700 11px var(--font-ui);color:var(--ink-2);background:var(--surface-2);border-radius:99px;padding:4px 10px}
+      /* An indeterminate sweep, not a percentage: warm-up has no honest
+         percentage, and a bar that sat at 0% would read as stuck. */
+      .prep-bar{position:relative;height:4px;border-radius:2px;background:var(--surface-2);overflow:hidden;margin-top:14px}
+      .prep-bar span{position:absolute;top:0;left:0;height:100%;width:38%;border-radius:2px;background:var(--teal);animation:sweep 1.4s ease-in-out infinite}
+      @keyframes sweep{0%{left:-40%}100%{left:102%}}
+      .prep-dots{display:flex;justify-content:center;gap:5px;margin-top:12px}
+      .prep-dots i{width:6px;height:6px;border-radius:50%;background:var(--line);transition:background .3s}
+      .prep-dots i.done{background:var(--teal)}
+      .prep-dots i.now{background:var(--teal);animation:pulse 1.1s ease-in-out infinite}
       .starting-card b{font:800 15px var(--font-display);color:var(--ink)}
       .starting-sub{font:600 11px var(--font-ui);color:var(--ink-2)}
       .starting-pip{width:11px;height:11px;border-radius:50%;background:var(--amber);box-shadow:0 0 0 5px var(--amber-soft);margin-bottom:4px;animation:pulse 1.2s ease-in-out infinite}
@@ -256,6 +277,17 @@
     </div>
 
     <div class="center-icon" id="center-icon"><svg class="ic"><use href="#i-video-camera"/></svg></div>
+
+    <!-- Warm-up state. Shown while the station is live but has not produced an
+         analysed frame yet, so the held first frame never reads as a freeze. -->
+    <div class="prep" id="prep">
+      <span class="prep-badge" id="prep-badge">Getting ready</span>
+      <b id="prep-title">Starting the patrol</b>
+      <div class="prep-detail" id="prep-detail">Waking the processing station…</div>
+      <div id="prep-metric-wrap"><span class="prep-metric" id="prep-metric"></span></div>
+      <div class="prep-bar"><span></span></div>
+      <div class="prep-dots" id="prep-dots"></div>
+    </div>
 
     <div class="watermark" id="watermark">0</div>
     <div class="watermark-label">Pieces found so far</div>
@@ -429,6 +461,7 @@
     }
 
     paintStatus(s);
+    paintPrep(s);
 
     // Analysed frames arrive with their boxes already drawn on. When they are
     // present they replace the video entirely, which is what makes the boxes
@@ -522,6 +555,52 @@
       $('alt-chip').textContent = '▲ ' + Math.round(alt) + ' m';
       if (s.altitude) $('alt-chip').title = `${s.altitude.min}–${s.altitude.max} m ${s.altitude.source}`;
     }
+  }
+
+  // The nine pipeline stages, in the order the station reports them. Used only
+  // to draw the progress dots — the wording always comes from the server so the
+  // phone and the station never disagree about what is happening.
+  const STAGE_ORDER = ['ingest', 'telemetry', 'weights', 'model', 'slicing',
+                       'inference', 'georeference', 'publish', 'export'];
+
+  /**
+   * Warm-up feedback.
+   *
+   * Between "Run this sample" and the first analysed frame the station loads
+   * telemetry, resolves weights and spawns a worker per CPU slice — seconds of
+   * real work during which the phone is deliberately holding on frame 0. With
+   * nothing on screen that reads as a hang, which is the worst possible
+   * impression at the exact moment an audience first looks at their phones.
+   */
+  function paintPrep(s) {
+    // Warming up = the station is live but has not published a frame yet.
+    const warming = !!s.live && !usingShots;
+    const card = $('prep');
+    card.classList.toggle('show', warming);
+    if (!warming) return;
+
+    const st = s.stage || {};
+    if (st.label) $('prep-title').textContent = st.label;
+    if (st.detail) $('prep-detail').textContent = st.detail;
+
+    // SAHI is the interesting part of the story; surface the tag when the
+    // station marks a stage with it, otherwise the neutral badge.
+    $('prep-badge').textContent = st.tag ? st.tag : 'Getting ready';
+
+    const metric = $('prep-metric');
+    metric.textContent = st.metric || '';
+    metric.style.display = st.metric ? '' : 'none';
+
+    // Dots rather than a percentage: warm-up has no honest percentage, and a
+    // bar stuck at 0 looks broken.
+    const at = STAGE_ORDER.indexOf(st.key);
+    const dots = $('prep-dots');
+    if (dots.children.length !== STAGE_ORDER.length) {
+      dots.innerHTML = STAGE_ORDER.map(() => '<i></i>').join('');
+    }
+    [...dots.children].forEach((el, i) => {
+      el.className = at < 0 ? '' : (i < at ? 'done' : i === at ? 'now' : '');
+    });
   }
 
   function altitudeOf(d) {
