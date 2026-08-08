@@ -28,6 +28,9 @@ PERSISTED_KEYS = (
     "task_id", "status", "progress_percent", "current_time_s", "duration_s",
     "detections", "clusters", "flight_path", "altitude", "sahi", "frames",
     "mission_title", "location",
+    # Kept so the phone's warm-up rail still has real stage labels after a
+    # restart, rather than falling back to raw keys.
+    "stages",
 )
 
 

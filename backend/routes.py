@@ -816,6 +816,14 @@ async def get_live_state(since: int = 0, pins_since: int = 0, frames_since: int 
             "tag": active.get("tag") if active else None,
             "metric": active.get("metric") if active else None,
         },
+        # The whole pipeline, key/label/status only — no `detail`, which is a
+        # sentence per stage and would dominate the payload. The phone shows the
+        # stages either side of the active one during warm-up, so the audience
+        # sees a station working through a sequence rather than a caption that
+        # changes for no visible reason. Labels come from here so the two screens
+        # cannot drift apart.
+        "stages": [{"key": st.get("key"), "label": st.get("label"),
+                    "status": st.get("status")} for st in stages],
         # Only the tail the caller has not seen yet.
         "detections": detections[since:],
         "pins": pins[pins_since:],
