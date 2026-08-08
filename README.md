@@ -193,7 +193,7 @@ The repository contains three sub-projects, each requiring its own `.env` config
 | Module | Env File Location | Source Command | Key Variables & Description |
 | :--- | :--- | :--- | :--- |
 | **FastAPI Backend** | `backend/.env` | `cp backend/.env.example backend/.env` | `SUPABASE_URL`: Your Supabase URL.<br>`SUPABASE_KEY`: Your Supabase **service_role** key (required to authenticate backend CRUD operations).<br>`SEA_LION_API_KEY`: SEA-LION translation model key (leave blank to use offline mock fallbacks).<br>`HOST`: `127.0.0.1` (local)<br>`PORT`: `8000` (default) |
-| **Processing Station** | `processing_station/.env` | `cp processing_station/.env.example processing_station/.env` | `ROBOFLOW_PUBLISHABLE_KEY`: Roboflow model inference access key.<br>`MAPBOX_ACCESS_TOKEN`: Mapbox API token (if needed by mapping tools). |
+| **Processing Station** | `processing_station/.env` | `cp processing_station/.env.example processing_station/.env` | *(No keys required.)* Weights are read from `backend/models/`; install them with `python -m model_source install <url> name.pt`. Detection runs locally, and the map uses Esri tiles proxied by the backend. |
 | **Mobile Client** | `mobile/.env` | `cp mobile/.env.example mobile/.env` | `EXPO_PUBLIC_SUPABASE_URL`: Same Supabase project URL.<br>`EXPO_PUBLIC_SUPABASE_ANON_KEY`: Supabase **anon/public** key (safe to package in mobile client builds). |
 
 > [!IMPORTANT]

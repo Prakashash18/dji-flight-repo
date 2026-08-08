@@ -151,7 +151,9 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Beach Litter Detection Processing Station")
     parser.add_argument('--video', type=str, default='flight_video.mp4', help="Path to flight MP4 video")
     parser.add_argument('--telemetry', type=str, default='flight_telemetry.csv', help="Path to CSV or SRT flight telemetry")
-    parser.add_argument('--model', type=str, default='solar_panel.pt', help="Path to YOLOv8 weights (.pt)")
+    parser.add_argument('--model', type=str,
+                        default=os.path.join(os.path.dirname(__file__), '..', 'backend', 'models', 'solar_panel.pt'),
+                        help="Path to YOLOv8 weights (.pt). Weights live in backend/models/.")
     parser.add_argument('--backend', type=str, default='http://localhost:8000', help="URL of FastAPI ingest service")
     parser.add_argument('--interval', type=int, default=1000, help="Sampling interval in milliseconds")
     parser.add_argument('--mock', action='store_true', help="Force mock run (skip real video/YOLO execution)")
