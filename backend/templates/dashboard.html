@@ -3456,77 +3456,17 @@
             let videoUrl = null;
             let gcsVideoPath = null;
             
-            // Try to get a signed upload URL from the backend if it's configured
-            try {
-                addTerminalLine('🔄 Requesting signed upload URL for video...');
-                const signedUrlResponse = await fetch(`/api/process/signed-upload-url?filename=${encodeURIComponent(videoFileObj.name)}`);
-                if (signedUrlResponse.ok) {
-                    const signedData = await signedUrlResponse.json();
-                    const signedUrl = signedData.signed_url;
-                    const publicUrl = signedData.public_url;
-                    const filePath = signedData.gcs_video_path;
-                    
-                    addTerminalLine('📤 Uploading video directly to Google Cloud Storage (bypassing server limits)...');
-                    
-                    // Upload file to the signed URL using XMLHttpRequest to track progress
-                    let lastLoggedPercent = -10;
-                    const uploadPromise = new Promise((resolve, reject) => {
-                        const xhr = new XMLHttpRequest();
-                        xhr.open('PUT', signedUrl);
-                        xhr.setRequestHeader('Content-Type', 'application/octet-stream');
-                        
-                        xhr.upload.onprogress = (event) => {
-                            if (event.lengthComputable) {
-                                const percentComplete = Math.round((event.loaded / event.total) * 100);
-                                const loadedMB = (event.loaded / (1024 * 1024)).toFixed(1);
-                                const totalMB = (event.total / (1024 * 1024)).toFixed(1);
-                                
-                                // Print every 10% change to keep logs readable
-                                if (percentComplete - lastLoggedPercent >= 10 || percentComplete === 100) {
-                                    addTerminalLine(`📤 Upload progress: ${percentComplete}% (${loadedMB}MB / ${totalMB}MB)`);
-                                    lastLoggedPercent = percentComplete;
-                                }
-                            }
-                        };
-                        
-                        xhr.onload = () => {
-                            if (xhr.status >= 200 && xhr.status < 300) {
-                                resolve();
-                            } else {
-                                reject(new Error(`GCS upload failed (HTTP ${xhr.status}): ${xhr.statusText || 'Unknown error'}`));
-                            }
-                        };
-                        
-                        xhr.onerror = () => {
-                            reject(new Error('Network error during Google Cloud Storage upload.'));
-                        };
-                        
-                        xhr.send(videoFileObj);
-                    });
-                    
-                    await uploadPromise;
-                    
-                    addTerminalLine('✅ Video uploaded successfully to Google Cloud Storage.', 'success');
-                    videoUrl = publicUrl;
-                    gcsVideoPath = filePath;
-                } else {
-                    addTerminalLine('⚠️ Google Cloud Storage not configured. Falling back to direct server upload...');
-                }
-            } catch (uploadErr) {
-                console.warn('Signed upload failed, falling back to direct upload:', uploadErr);
-                addTerminalLine(`⚠️ Upload to Google Cloud Storage failed (${uploadErr.message}). Falling back to direct server upload...`);
-            }
+            // Straight to the server. This used to try a Google Cloud signed URL
+            // first and fall back when it failed — but object storage was removed,
+            // so that request could only ever fail. It also went out without the
+            // operator key, so it turned into a 403 in the log that looked like
+            // the cause of a stalled upload rather than a dead branch.
+            addTerminalLine(`📦 Preparing ${videoFileObj.name} `
+                          + `(${(videoFileObj.size / 1048576).toFixed(0)} MB) for upload...`);
 
             // Build FormData
             const formData = new FormData();
-            if (gcsVideoPath) {
-                formData.append('gcs_video_path', gcsVideoPath);
-                if (videoUrl) {
-                    formData.append('video_url', videoUrl);
-                }
-            } else {
-                formData.append('video', videoFileObj);
-            }
+            formData.append('video', videoFileObj);
             formData.append('telemetry', telemetryFileObj);
             appendEngineFields(formData);
 
