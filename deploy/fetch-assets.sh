@@ -39,24 +39,26 @@ elif [ -z "${SAMPLE_URL:-}" ] || [[ "$SAMPLE_URL" == *REPLACE_WITH_YOUR* ]]; the
   warn "The pod will start, but 'Run this sample' will 404 until you upload a video."
 else
   echo "    downloading (~486 MB)…"
-  "$PY" - "$SAMPLE_URL" "$SAMPLE" <<'EOF'
+  "$PY" - "$SAMPLE_URL" "$SAMPLE" "$ROOT/backend" <<'EOF'
 import sys, os
-url, dest = sys.argv[1], sys.argv[2]
+url, dest, backend = sys.argv[1], sys.argv[2], sys.argv[3]
 os.makedirs(os.path.dirname(dest), exist_ok=True)
 tmp = dest + ".part"
-if "drive.google.com" in url:
-    import gdown, inspect
-    kwargs = {"output": tmp, "quiet": False}
-    if "fuzzy" in inspect.signature(gdown.download).parameters:
-        kwargs["fuzzy"] = True
-    gdown.download(url, **kwargs)
+
+# Reuse model_source's downloader rather than importing gdown directly. This
+# script runs BEFORE the venv exists — that is the whole point of it — so gdown
+# is usually not installed yet, and requiring it made the weights succeed (they
+# go through model_source, which falls back) while the video died on an import
+# error. model_source handles Drive's confirm token with or without gdown.
+sys.path.insert(0, backend)
+from model_source import extract_drive_file_id, _download_drive, _download_url
+
+log = lambda m: print(f"  {m}")
+file_id = extract_drive_file_id(url)
+if file_id:
+    _download_drive(file_id, tmp, log)
 else:
-    import requests
-    with requests.get(url, stream=True, timeout=60) as r:
-        r.raise_for_status()
-        with open(tmp, "wb") as f:
-            for chunk in r.iter_content(1 << 20):
-                f.write(chunk)
+    _download_url(url, tmp, log)
 
 # Drive answers a throttled request with an HTML page, not the file. Catch that
 # here rather than letting OpenCV fail on it much later with a useless error.
