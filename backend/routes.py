@@ -782,7 +782,20 @@ def _active_task() -> Optional[dict]:
     # written to disk when it ended, so the page shows real work rather than an
     # empty screen.
     import local_store
-    return local_store.load_mission()
+    stored = local_store.load_mission()
+    if stored:
+        # A stored mission outlives its images: the frame folder may have been
+        # retired by a later patrol. Advertising frames whose files are gone
+        # gives the phone a replay button that plays a black screen, so drop
+        # them and let it fall back to what it can still show.
+        from processing_task import FRAMES_DIR
+        tid = stored.get("task_id")
+        if tid and not os.path.isdir(os.path.join(FRAMES_DIR, str(tid))):
+            if stored.get("frames"):
+                print(f"⚠️ Stored patrol {str(tid)[:8]} has no frames on disk — "
+                      f"offering it without a replay.")
+            stored = dict(stored, frames=[])
+    return stored
 
 
 # A crowd scanning the QR at the same moment all request `since=0`, and every

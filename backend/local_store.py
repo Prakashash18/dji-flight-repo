@@ -65,7 +65,8 @@ def load_mission() -> Optional[Dict[str, Any]]:
         return None
 
 
-def _prune_generations(parent: str, keep_task_id: Optional[str], keep: int = 2) -> int:
+def _prune_generations(parent: str, keep_task_id: Optional[str], keep: int = 2,
+                       protect: Optional[str] = None) -> int:
     """
     Keep the newest `keep` mission folders under `parent`, plus the live one.
 
@@ -80,7 +81,7 @@ def _prune_generations(parent: str, keep_task_id: Optional[str], keep: int = 2) 
     entries = []
     for name in os.listdir(parent):
         path = os.path.join(parent, name)
-        if not os.path.isdir(path) or name == keep_task_id:
+        if not os.path.isdir(path) or name == keep_task_id or name == protect:
             continue
         try:
             entries.append((os.path.getmtime(path), path))
@@ -105,9 +106,15 @@ def purge_previous(keep_task_id: Optional[str] = None) -> None:
     from routes import CROP_CACHE_DIR
     from processing_task import FRAMES_DIR
 
+    # Never retire the patrol the store still points at. Without this the two
+    # can disagree: the stored mission keeps advertising its frames while the
+    # files behind them are gone, and the phone shows a black screen when
+    # someone asks to replay it.
+    stored = (load_mission() or {}).get("task_id")
+
     n = 0
     try:
-        n += _prune_generations(FRAMES_DIR, keep_task_id)
+        n += _prune_generations(FRAMES_DIR, keep_task_id, protect=stored)
     except Exception as e:
         print(f"⚠️ Could not retire old frames: {e}")
     try:
