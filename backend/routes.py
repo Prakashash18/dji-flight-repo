@@ -796,7 +796,8 @@ FRAME_TAIL = 6
 
 
 @router.get("/live")
-async def get_live_state(since: int = 0, pins_since: int = 0, frames_since: int = 0):
+async def get_live_state(since: int = 0, pins_since: int = 0, frames_since: int = 0,
+                         frames_all: int = 0):
     """
     Compact live state for the public phone view, polled by every watcher.
 
@@ -805,7 +806,8 @@ async def get_live_state(since: int = 0, pins_since: int = 0, frames_since: int 
     keeps each update to a few hundred bytes, which is what makes a room full of
     phones on shared wifi viable.
     """
-    fresh_client = (since == 0 and pins_since == 0 and frames_since == 0)
+    fresh_client = (since == 0 and pins_since == 0 and frames_since == 0
+                    and not frames_all)
     task = _active_task()
 
     # Replay the cached body when a fresh client asks for state that has not
@@ -887,11 +889,14 @@ async def get_live_state(since: int = 0, pins_since: int = 0, frames_since: int 
         # Only the tail the caller has not seen yet.
         "detections": detections[since:],
         "pins": pins[pins_since:],
-        # Analysed frames with their boxes already drawn on. Only the newest few
-        # are worth sending: a phone joining mid-flight wants to see what is
-        # happening now, not replay everything it missed.
-        "frames": (task.get("frames") or [])[-FRAME_TAIL:] if frames_since == 0
-                  else (task.get("frames") or [])[frames_since:],
+        # Analysed frames with their boxes already drawn on. A phone joining
+        # mid-flight gets only the newest few — it wants to see what is happening
+        # now, not replay everything it missed. `frames_all=1` asks for the whole
+        # patrol instead, which is what the replay button uses once a run has
+        # finished and there is nothing live to watch.
+        "frames": (task.get("frames") or []) if frames_all
+                  else ((task.get("frames") or [])[-FRAME_TAIL:] if frames_since == 0
+                        else (task.get("frames") or [])[frames_since:]),
         "total_frames": len(task.get("frames") or ()),
         "total_detections": len(detections),
         "total_pins": len(pins),

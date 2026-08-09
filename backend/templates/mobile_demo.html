@@ -188,6 +188,19 @@
         .backbtn{bottom:calc(env(safe-area-inset-bottom) + 22px)}
       }
 
+      /* When no patrol is running the phone had nothing to offer: it played the
+         last few frames the server sent and then simply stopped, with no way to
+         see the rest. This replays the whole flight on demand. */
+      /* Sits in the empty band between the top bar and the frame. The bottom of
+         the screen belongs to the running count and the ticker — a pill there
+         landed straight on top of the "just spotted" card. Nowrap keeps it one
+         line, so the pill never grows into a two-line lozenge. */
+      .replaybtn{position:absolute;left:50%;transform:translateX(-50%);top:calc(env(safe-area-inset-top) + 104px);z-index:24;display:none;align-items:center;gap:8px;padding:12px 20px 12px 16px;border-radius:999px;background:var(--surface);border:1px solid var(--line);box-shadow:var(--sh-3);font:800 13px var(--font-ui);color:var(--ink);white-space:nowrap;cursor:pointer;-webkit-tap-highlight-color:transparent}
+      .replaybtn.show{display:flex}
+      .replaybtn svg{width:17px;height:17px;fill:var(--teal);flex-shrink:0}
+      .replaybtn:active{transform:translateX(-50%) scale(.96)}
+      .replaybtn[disabled]{opacity:.55;cursor:default}
+
       .map-area{position:absolute;inset:0;background:var(--cream-deep)}
       #map{position:absolute;inset:0;background:var(--cream-deep)}
       .map-place{position:absolute;top:58px;left:16px;z-index:1001;display:flex;align-items:center;gap:8px;padding:8px 12px 8px 10px;border-radius:12px;background:var(--surface);border:1px solid var(--line);box-shadow:var(--sh-2)}
@@ -306,6 +319,11 @@
       <div class="prep-count" id="prep-count"></div>
       <div class="prep-dots" id="prep-dots"></div>
     </div>
+
+    <button class="replaybtn" id="replay-btn" onclick="replayPatrol()"
+            aria-label="Replay this patrol">
+      <svg><use href="#i-video-camera"/></svg><span id="replay-label">Replay this patrol</span>
+    </button>
 
     <div class="watermark" id="watermark">0</div>
     <div class="watermark-label">Pieces found so far</div>
@@ -480,6 +498,7 @@
 
     paintStatus(s);
     paintPrep(s);
+    paintReplayButton(s);
 
     // Analysed frames arrive with their boxes already drawn on. When they are
     // present they replace the video entirely, which is what makes the boxes
@@ -698,6 +717,63 @@
       shotTimer = setTimeout(tick, hold);
     };
     tick();
+  }
+
+  // --- replay -------------------------------------------------------------
+  // Between patrols the phone was a dead end: it played whatever tail the server
+  // had sent, then stopped on a still frame with no control of any kind. This
+  // pulls the whole flight and plays it end to end.
+  let replaying = false;
+
+  // Exposed on window: everything here lives in an IIFE, so an inline
+  // onclick in the markup cannot see a plain function declaration —
+  // the same reason `go` and `step` are assigned this way.
+  window.replayPatrol = async function replayPatrol() {
+    if (replaying) return;
+    const btn = $('replay-btn'), label = $('replay-label');
+    replaying = true; btn.disabled = true; label.textContent = 'Loading patrol…';
+    try {
+      const r = await fetch('/api/live?since=999999&pins_since=999999&frames_all=1',
+                            { cache: 'no-store' });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const d = await r.json();
+      const frames = d.frames || [];
+      if (!frames.length) { label.textContent = 'Nothing to replay yet'; return; }
+
+      // Start clean so the replay runs from the first frame rather than
+      // continuing wherever the tail happened to leave off.
+      shotQueue.length = 0;
+      if (shotTimer) { clearTimeout(shotTimer); shotTimer = null; }
+      frames.forEach(f => shotQueue.push(f));
+      go('replay');
+      startShotPlayer();
+      label.textContent = `Replaying \u00b7 ${frames.length} frames`;
+    } catch (e) {
+      console.error('replay failed:', e);
+      label.textContent = 'Could not load the patrol';
+    } finally {
+      // Re-arm once the queue has drained, so it can be watched again.
+      const rearm = setInterval(() => {
+        if (shotQueue.length === 0 && !shotTimer) {
+          clearInterval(rearm);
+          replaying = false; btn.disabled = false;
+          // Leave a failure message on screen; only a real replay resets it.
+          if (!label.textContent.startsWith('Could not')) {
+            label.textContent = 'Replay this patrol';
+          }
+        }
+      }, 800);
+    }
+  };
+
+  /** The button only makes sense when nothing is running and frames exist. */
+  let lastState = null;
+  function paintReplayButton(s) {
+    if (s) lastState = s;
+    const st = lastState;
+    const btn = $('replay-btn');
+    const offer = st && !st.live && (st.total_frames || 0) > 0 && view === 'replay';
+    btn.classList.toggle('show', !!offer);
   }
 
   function showShot(f) {
@@ -1064,6 +1140,7 @@
       $('dot-' + k).classList.toggle('active', k === v);
     });
     closeSheet();
+    paintReplayButton(null);
     history.replaceState(null, '', '#' + v);
     if (v === 'map' && map) setTimeout(() => { map.invalidateSize(); if (!mapFramed) mapFramed = fitPins(); }, 60);
   };
