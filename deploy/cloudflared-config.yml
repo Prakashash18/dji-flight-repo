@@ -29,9 +29,16 @@ originRequest:
 
 ingress:
   # ---------------------------------------------------------------- public ---
-  # The demo page, its live feed, the tile and crop proxies, and static assets.
+  # The demo page, its live feed, the tile, crop and annotated-frame endpoints,
+  # and static assets.
+  #
+  # `frames` is easy to forget and fails in a way that looks like a bug in the
+  # app: the phone is told a patrol has 46 frames, asks for them, and Cloudflare
+  # 404s every one before the station sees it. The result is a black replay with
+  # nothing in the server log to explain it. Any new public endpoint has to be
+  # added here or it simply does not exist on this hostname.
   - hostname: coastalpatrol.app
-    path: ^/(api/(demo|live|tiles|crops)(/.*)?|static/.*)$
+    path: ^/(api/(demo|live|tiles|crops|frames)(/.*)?|static/.*)$
     service: http://localhost:8000
 
   # Bare domain -> the app redirects browsers to /api/demo on this hostname.
