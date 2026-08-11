@@ -108,11 +108,35 @@ there, so it is safe to re-run. If Drive throttles the video the script says so
 rather than leaving you a broken file — host the `.mp4` in your Supabase bucket
 and use that URL instead.
 
+## Keep the venv off /workspace
+
+The single biggest thing affecting how long the demo takes to show its first
+detection. `/workspace` is a network volume; every inference worker is spawned
+fresh and imports torch independently, and eight of them contending on that mount
+dominates the run. Measured on this pod, same footage, same worker count:
+
+| venv location | first detection | whole run |
+|---|---|---|
+| `/workspace` (network) | 68.5s | ~80s |
+| `/opt/venv` (local disk) | **14.6s** | **30s** |
+
+`runpod-setup.sh` now builds it at `/opt/venv`. That is container disk, so it is
+**wiped when the pod stops** — re-run the setup script after a restart, or the
+start command will fail on a missing interpreter.
+
 ## 6. Start it
 
+Server and tunnel together — the tunnel is easy to forget, and without it the
+public hostname returns 530 while the station looks perfectly healthy locally:
+
 ```bash
-cd /workspace/coastal-patrol/backend
-HOST=0.0.0.0 ./venv/bin/python main.py
+cd /workspace/coastal-patrol && pkill -f "backend/main.py"; pkill -f "tunnel run coastal-patrol"; sleep 2
+mkdir -p /workspace/logs && export PATH="/workspace/bin:$PATH"
+(cd backend && HOST=0.0.0.0 STATION_KEY="$STATION_KEY" nohup /opt/venv/bin/python main.py > /workspace/logs/server.log 2>&1 &)
+sleep 10
+nohup cloudflared --config /workspace/cloudflared/config.yml tunnel run coastal-patrol > /workspace/logs/tunnel.log 2>&1 &
+sleep 8
+echo "local: $(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/api/dashboard)  public: $(curl -s -o /dev/null -w '%{http_code}' https://coastalpatrol.app/api/demo)"
 ```
 
 Check both pages on the RunPod proxy URL:

@@ -21,10 +21,23 @@ if ! PYTHON=python3 "$ROOT/deploy/gpu-check.sh"; then
   exit 1
 fi
 
-say "Step 2 — venv that REUSES the image's torch"
+say "Step 2 — venv that REUSES the image's torch, on LOCAL disk"
+# The venv must not live on /workspace. That is a network volume, and every
+# inference worker is spawned fresh and imports torch independently — eight of
+# them hammering one network mount at once. Measured on this pod, same sample,
+# same worker count:
+#
+#     venv on /workspace (network)   first detection 68.5s, run 80s
+#     venv on /opt       (local)     first detection 14.6s, run 30s
+#
+# `import torch` alone is 8.6s against 2.4s; the rest is contention. /opt is
+# container disk, so it is wiped when the pod stops and this step rebuilds it.
+VENV="${VENV_DIR:-/opt/venv}"
+if [ ! -d "$VENV" ]; then
+  python3 -m venv --system-site-packages "$VENV"
+fi
 cd "$ROOT/backend"
-[ -d venv ] || python3 -m venv --system-site-packages venv
-PY="$ROOT/backend/venv/bin/python"
+PY="$VENV/bin/python"
 "$PY" -m pip install -qq --upgrade pip
 
 # Record what we must not lose, so we can prove later that pip did not swap it.
