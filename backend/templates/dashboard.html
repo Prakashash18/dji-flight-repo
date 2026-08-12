@@ -2277,10 +2277,10 @@
                                 </div>
 
                                 <div class="form-group" style="margin-top: 16px;">
-                                    <label>Detection confidence: <span id="conf-val" style="color: var(--primary-glow); font-weight: 700;">40%</span>
+                                    <label>Detection confidence: <span id="conf-val" style="color: var(--primary-glow); font-weight: 700;">60%</span>
                                         <span class="info-dot" title="Minimum score a detection needs to become a pin. Lower finds more litter but admits more false positives.">?</span>
                                     </label>
-                                    <input type="range" id="confidence-range" min="10" max="95" value="40" class="select-input" style="padding: 0; height: 6px; background: rgba(255,255,255,0.1); cursor: pointer;" oninput="document.getElementById('conf-val').textContent = this.value + '%'">
+                                    <input type="range" id="confidence-range" min="10" max="95" value="60" class="select-input" style="padding: 0; height: 6px; background: rgba(255,255,255,0.1); cursor: pointer;" oninput="document.getElementById('conf-val').textContent = this.value + '%'">
                                 </div>
 
                                 <!-- Advanced drawer: every knob still reachable, just not shouting. -->
@@ -3105,8 +3105,8 @@
         function resetWizard() {
             document.getElementById('video-input').value = '';
             document.getElementById('telemetry-input').value = '';
-            document.getElementById('confidence-range').value = '40';
-            document.getElementById('conf-val').textContent = '40%';
+            document.getElementById('confidence-range').value = '60';
+            document.getElementById('conf-val').textContent = '60%';
             
             videoFile = null;
             telemetryFile = null;

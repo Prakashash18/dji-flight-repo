@@ -1147,10 +1147,12 @@ async def process_flight_data(
     # code execution. Install models with `python -m model_source install`.
     model_name: Optional[str] = Form(None),
     interval_ms: int = Form(1000),
-    # 0.40 matches the model's mAP and the dashboard slider's default, so a
-    # direct API call and a run started from the station behave the same. The
-    # station used to send 0.70, which quietly discarded most of the finds.
-    min_confidence: float = Form(0.40),
+    # 0.60. Below this the sample run returns a lot of near-duplicate pins —
+    # the same piece of litter caught weakly across several overlapping tiles or
+    # consecutive frames — which reads as noise rather than detection. Kept in
+    # step with the dashboard slider so a direct API call and a run started from
+    # the station behave identically.
+    min_confidence: float = Form(0.60),
     mission_title: Optional[str] = Form(None),
     mission_date: Optional[str] = Form(None),
     sahi_enabled: bool = Form(True),
