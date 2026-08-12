@@ -65,11 +65,16 @@ real zone matters.
 
 **Rule 1 — "Cache demo assets"**
 
-- If: `(http.request.uri.path contains "/api/tiles/") or (http.request.uri.path contains "/api/crops/") or (starts_with(http.request.uri.path, "/static/"))`
+- If: `(http.request.uri.path contains "/api/tiles/") or (http.request.uri.path contains "/api/crops/") or (http.request.uri.path contains "/api/frames/") or (starts_with(http.request.uri.path, "/static/"))`
 - Then: **Eligible for cache**, Edge TTL **Respect origin**, Browser TTL **Respect origin**
 
 The origin already sends the right `Cache-Control` (`immutable` for
-`/static/vendor/*`, a week for crops, a year for tiles).
+`/static/vendor/*`, a week for crops, a year for tiles and frames).
+
+`/api/frames/` matters most and is easiest to forget — it did not exist when this
+was first written. Each annotated frame is ~50KB, a patrol has ~46 of them, and
+every phone replaying the patrol pulls the same set. Uncached that is 2.3MB per
+viewer from the origin; cached it is one fetch for the whole room.
 
 **Rule 2 — "Micro-cache live feed"**
 
